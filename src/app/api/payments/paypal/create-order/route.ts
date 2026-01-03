@@ -162,11 +162,11 @@ export async function POST(request: NextRequest) {
       data: {
         gatewayProvider: "PAYPAL" as any,
         gatewayReference: paypalOrder.id,
-        gatewayData: {
+        gatewayData: JSON.stringify({
           paypalOrderId: paypalOrder.id,
           status: paypalOrder.status,
           createdAt: new Date().toISOString(),
-        },
+        }),
       },
     })
 

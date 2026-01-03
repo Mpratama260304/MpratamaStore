@@ -1,0 +1,93 @@
+# ============================================
+# PhalaCloud Docker Compose - SQLite Version (No External DB)
+# MpratamaStore - Next.js E-commerce
+# ============================================
+# USAGE:
+#   1. Copy this entire file to PhalaCloud compose editor
+#   2. Fill in ALL env vars via PhalaCloud Environment Variables UI
+#   3. Deploy
+#
+# KEY FEATURES:
+#   - 100% Internal SQLite database (no external DB connection needed!)
+#   - Auto migration & seed on startup
+#   - Persistent data via volume mount
+#   - Single container deployment
+# ============================================
+
+version: "3.9"
+
+services:
+  web:
+    image: mpratamamail/mpratamastore:latest
+    container_name: mpratamastore-web
+    restart: unless-stopped
+    
+    ports:
+      - "80:3000"
+    
+    volumes:
+      # Persistent volume for SQLite database
+      # Data survives container restarts and updates
+      - mpratamastore_data:/data
+    
+    environment:
+      # ══════════════════════════════════════════════════════════════
+      # CORE SETTINGS (Tidak perlu diubah)
+      # ══════════════════════════════════════════════════════════════
+      NODE_ENV: "production"
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      
+      # ══════════════════════════════════════════════════════════════
+      # DATABASE (Internal SQLite - TIDAK PERLU EXTERNAL DB!)
+      # ══════════════════════════════════════════════════════════════
+      DATABASE_URL: "file:/data/app.db"
+      
+      # ══════════════════════════════════════════════════════════════
+      # APP URLs [WAJIB ISI DI PHALA UI]
+      # Ganti dengan domain PhalaCloud Anda
+      # ══════════════════════════════════════════════════════════════
+      NEXT_PUBLIC_APP_URL: ""
+      NEXT_PUBLIC_SITE_URL: ""
+      NEXT_PUBLIC_BASE_URL: ""
+      
+      # ══════════════════════════════════════════════════════════════
+      # AUTHENTICATION SECRETS [WAJIB ISI DI PHALA UI]
+      # Generate dengan: openssl rand -base64 32
+      # ══════════════════════════════════════════════════════════════
+      AUTH_SECRET: ""
+      JWT_SECRET: ""
+      
+      # ══════════════════════════════════════════════════════════════
+      # ADMIN USER (Seed saat pertama kali start)
+      # Isi untuk membuat admin user pertama kali
+      # ══════════════════════════════════════════════════════════════
+      ADMIN_EMAIL: ""
+      ADMIN_USERNAME: ""
+      ADMIN_PASSWORD: ""
+      
+      # ══════════════════════════════════════════════════════════════
+      # STRIPE PAYMENT [OPSIONAL - ISI DI PHALA UI JIKA PAKAI STRIPE]
+      # ══════════════════════════════════════════════════════════════
+      STRIPE_SECRET_KEY: ""
+      STRIPE_PUBLISHABLE_KEY: ""
+      STRIPE_WEBHOOK_SECRET: ""
+      
+      # ══════════════════════════════════════════════════════════════
+      # PAYPAL PAYMENT [OPSIONAL - ISI DI PHALA UI JIKA PAKAI PAYPAL]
+      # ══════════════════════════════════════════════════════════════
+      PAYPAL_CLIENT_ID: ""
+      PAYPAL_CLIENT_SECRET: ""
+      PAYPAL_ENV: "sandbox"
+    
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+
+# Named volume for persistent SQLite database
+volumes:
+  mpratamastore_data:
+    driver: local

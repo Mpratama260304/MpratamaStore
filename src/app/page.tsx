@@ -2,9 +2,14 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ProductImage } from "@/components/ui/product-image"
+import { withDb, isDbEnabled } from "@/lib/db"
 import { prisma } from "@/lib/prisma"
-import { formatPrice, getRarityGlow } from "@/lib/utils"
-import { getSiteSettings } from "@/lib/settings"
+
+// Force dynamic rendering - database required at runtime
+export const dynamic = 'force-dynamic'
+import { formatPrice, getRarityGlow, parseStats } from "@/lib/utils"
+import { getSiteSettings, DEFAULT_SITE_SETTINGS } from "@/lib/settings"
+import { DbOfflineBanner } from "@/components/db-offline-notice"
 import { 
   Sparkles, 
   Shield, 
@@ -24,24 +29,48 @@ import { MainNav } from "@/components/layout/main-nav"
 import { Footer } from "@/components/layout/footer"
 
 async function getFeaturedProducts() {
-  return prisma.product.findMany({
-    where: { status: "PUBLISHED" },
-    include: {
-      images: { orderBy: { sortOrder: "asc" }, take: 1 },
-      category: true,
+  if (!isDbEnabled()) {
+    console.log('[Home] Skipping getFeaturedProducts - DB disabled')
+    return { products: [], fromDb: false }
+  }
+
+  const result = await withDb(
+    async (db) => {
+      return db.product.findMany({
+        where: { status: "PUBLISHED" },
+        include: {
+          images: { orderBy: { sortOrder: "asc" }, take: 1 },
+          category: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+      })
     },
-    orderBy: { createdAt: "desc" },
-    take: 8,
-  })
+    [],
+    'getFeaturedProducts'
+  )
+  return { products: result.data, fromDb: result.fromDb }
 }
 
 async function getCategories() {
-  return prisma.category.findMany({
-    include: {
-      _count: { select: { products: { where: { status: "PUBLISHED" } } } },
+  if (!isDbEnabled()) {
+    console.log('[Home] Skipping getCategories - DB disabled')
+    return { categories: [], fromDb: false }
+  }
+
+  const result = await withDb(
+    async (db) => {
+      return db.category.findMany({
+        include: {
+          _count: { select: { products: { where: { status: "PUBLISHED" } } } },
+        },
+        orderBy: { sortOrder: "asc" },
+      })
     },
-    orderBy: { sortOrder: "asc" },
-  })
+    [],
+    'getCategories'
+  )
+  return { categories: result.data, fromDb: result.fromDb }
 }
 
 const categoryIcons: Record<string, React.ReactNode> = {
@@ -53,14 +82,23 @@ const categoryIcons: Record<string, React.ReactNode> = {
 }
 
 export default async function HomePage() {
-  const [settings, products, categories] = await Promise.all([
+  const [settings, productsResult, categoriesResult] = await Promise.all([
     getSiteSettings(),
     getFeaturedProducts(),
     getCategories(),
   ])
 
+  const products = productsResult.products
+  const categories = categoriesResult.categories
+  const dbOffline = !productsResult.fromDb && !categoriesResult.fromDb
+
   return (
     <div className="min-h-screen bg-background">
+      {/* DB Offline Banner */}
+      {dbOffline && (
+        <DbOfflineBanner message="Database tidak terhubung. Konten tidak tersedia." />
+      )}
+
       {/* Store Notice Banner */}
       {settings.storeNotice && (
         <div className="bg-gradient-to-r from-purple-600/20 via-blue-600/20 to-green-600/20 border-b border-purple-500/20 py-2 px-4 text-center text-sm">
@@ -244,9 +282,9 @@ export default async function HomePage() {
                   </p>
                   
                   {/* Stats */}
-                  {product.stats && (
+                  {parseStats(product.stats) && (
                     <div className="flex gap-2 mb-3">
-                      {Object.entries(product.stats as Record<string, number>).slice(0, 3).map(([key, value]) => (
+                      {Object.entries(parseStats(product.stats)!).slice(0, 3).map(([key, value]) => (
                         <div key={key} className="text-xs bg-secondary/50 px-2 py-1 rounded">
                           <span className="text-muted-foreground">{key}:</span>{" "}
                           <span className="text-purple-400">{value}</span>

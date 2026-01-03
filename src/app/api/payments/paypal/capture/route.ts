@@ -85,20 +85,28 @@ export async function GET(request: NextRequest) {
       // Payment successful - update order
       const captureId = captureData.purchase_units?.[0]?.payments?.captures?.[0]?.id
 
+      // Parse existing gatewayData if present
+      let existingData: Record<string, unknown> = {}
+      if (order.gatewayData) {
+        try {
+          existingData = JSON.parse(order.gatewayData)
+        } catch {
+          existingData = {}
+        }
+      }
+
       await prisma.order.update({
         where: { id: orderId },
         data: {
           status: "PAID",
           paidAt: new Date(),
-          gatewayData: {
-            ...(typeof order.gatewayData === "object" && order.gatewayData !== null
-              ? order.gatewayData
-              : {}),
+          gatewayData: JSON.stringify({
+            ...existingData,
             paypalOrderId: token,
             captureId,
             captureStatus: captureData.status,
             completedAt: new Date().toISOString(),
-          },
+          }),
         },
       })
 

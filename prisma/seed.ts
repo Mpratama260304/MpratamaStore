@@ -1,37 +1,45 @@
-import { PrismaClient, Role, ProductStatus, Rarity, DeliveryType } from '@prisma/client'
+import { PrismaClient } from '@prisma/client'
 import * as argon2 from 'argon2'
+
+/**
+ * Idempotent Seed Script for SQLite
+ * Can be run multiple times safely without creating duplicates.
+ * 
+ * Environment variables:
+ * - ADMIN_EMAIL: Admin user email
+ * - ADMIN_USERNAME: Admin username
+ * - ADMIN_PASSWORD: Admin password
+ */
 
 const prisma = new PrismaClient()
 
+// Role constants (since we use String instead of Enum for SQLite compatibility)
+const Role = {
+  ADMIN: 'ADMIN',
+  CUSTOMER: 'CUSTOMER',
+} as const
+
+const ProductStatus = {
+  DRAFT: 'DRAFT',
+  PUBLISHED: 'PUBLISHED',
+  ARCHIVED: 'ARCHIVED',
+} as const
+
+const Rarity = {
+  COMMON: 'COMMON',
+  RARE: 'RARE',
+  EPIC: 'EPIC',
+  LEGENDARY: 'LEGENDARY',
+} as const
+
+const DeliveryType = {
+  FILE: 'FILE',
+  LICENSE_KEY: 'LICENSE_KEY',
+  EXTERNAL_LINK: 'EXTERNAL_LINK',
+} as const
+
 async function main() {
-  console.log('🌱 Starting database seed...')
-
-  // ==================== ADMIN USER ====================
-  const adminEmail = process.env.ADMIN_EMAIL || 'mpratamagpt@gmail.com'
-  const adminUsername = process.env.ADMIN_USERNAME || 'mpragans'
-  const adminPassword = process.env.ADMIN_PASSWORD || 'Anonymous263'
-
-  const existingAdmin = await prisma.user.findFirst({
-    where: { role: Role.ADMIN }
-  })
-
-  if (!existingAdmin) {
-    const hashedPassword = await argon2.hash(adminPassword)
-    await prisma.user.create({
-      data: {
-        email: adminEmail,
-        username: adminUsername,
-        passwordHash: hashedPassword,
-        role: Role.ADMIN,
-        firstName: 'Admin',
-        lastName: 'User',
-        emailVerified: new Date(),
-      }
-    })
-    console.log(`✅ Admin user created: ${adminEmail}`)
-  } else {
-    console.log('ℹ️ Admin user already exists, skipping...')
-  }
+  console.log('🌱 Starting database seed (idempotent)...')
 
   // ==================== SITE SETTINGS ====================
   await prisma.siteSetting.upsert({
@@ -46,7 +54,7 @@ async function main() {
       storeNotice: '🎮 Welcome to the Fantasy Market! New items added weekly.',
     }
   })
-  console.log('✅ Site settings created')
+  console.log('✅ Site settings created/verified')
 
   // ==================== SEO SETTINGS ====================
   await prisma.seoSetting.upsert({
@@ -61,24 +69,66 @@ async function main() {
       generateSitemap: true,
     }
   })
-  console.log('✅ SEO settings created')
+  console.log('✅ SEO settings created/verified')
 
   // ==================== PAYMENT SETTINGS ====================
+  const manualAccounts = JSON.stringify([
+    { bank: 'BCA', accountNumber: '1234567890', accountName: 'MpratamaStore' },
+    { bank: 'DANA', accountNumber: '08123456789', accountName: 'MpratamaStore' },
+    { bank: 'GoPay', accountNumber: '08123456789', accountName: 'MpratamaStore' },
+  ])
+
   await prisma.paymentSetting.upsert({
     where: { id: 'payment-settings' },
     update: {},
     create: {
       id: 'payment-settings',
       mode: 'BOTH',
-      manualAccounts: [
-        { bank: 'BCA', accountNumber: '1234567890', accountName: 'MpratamaStore' },
-        { bank: 'DANA', accountNumber: '08123456789', accountName: 'MpratamaStore' },
-        { bank: 'GoPay', accountNumber: '08123456789', accountName: 'MpratamaStore' },
-      ],
+      manualAccounts: manualAccounts,
       manualInstructions: 'Transfer sesuai total pesanan. Screenshot bukti transfer dan upload di halaman konfirmasi. Pesanan akan diproses dalam 1x24 jam.',
     }
   })
-  console.log('✅ Payment settings created')
+  console.log('✅ Payment settings created/verified')
+
+  // ==================== ADMIN USER ====================
+  const adminEmail = process.env.ADMIN_EMAIL
+  const adminUsername = process.env.ADMIN_USERNAME
+  const adminPassword = process.env.ADMIN_PASSWORD
+
+  if (adminEmail && adminUsername && adminPassword) {
+    const existingAdmin = await prisma.user.findUnique({
+      where: { email: adminEmail }
+    })
+
+    if (!existingAdmin) {
+      const hashedPassword = await argon2.hash(adminPassword)
+      await prisma.user.create({
+        data: {
+          email: adminEmail,
+          username: adminUsername,
+          passwordHash: hashedPassword,
+          role: Role.ADMIN,
+          firstName: 'Admin',
+          lastName: 'User',
+          emailVerified: new Date(),
+        }
+      })
+      console.log(`✅ Admin user created: ${adminEmail}`)
+    } else {
+      // Update existing user to admin if needed
+      if (existingAdmin.role !== Role.ADMIN) {
+        await prisma.user.update({
+          where: { email: adminEmail },
+          data: { role: Role.ADMIN }
+        })
+        console.log(`✅ Admin role updated for: ${adminEmail}`)
+      } else {
+        console.log(`ℹ️ Admin user already exists: ${adminEmail}`)
+      }
+    }
+  } else {
+    console.log('ℹ️ ADMIN_EMAIL/ADMIN_USERNAME/ADMIN_PASSWORD not set, skipping admin creation')
+  }
 
   // ==================== CATEGORIES ====================
   const categories = [
@@ -96,7 +146,7 @@ async function main() {
       create: cat,
     })
   }
-  console.log('✅ Categories created')
+  console.log('✅ Categories created/verified')
 
   // ==================== TAGS ====================
   const tags = [
@@ -117,9 +167,9 @@ async function main() {
       create: tag,
     })
   }
-  console.log('✅ Tags created')
+  console.log('✅ Tags created/verified')
 
-  // ==================== PRODUCTS ====================
+  // ==================== SAMPLE PRODUCTS ====================
   const scriptCategory = await prisma.category.findUnique({ where: { slug: 'script' } })
   const botCategory = await prisma.category.findUnique({ where: { slug: 'bot' } })
   const aiCategory = await prisma.category.findUnique({ where: { slug: 'ai' } })
@@ -127,9 +177,7 @@ async function main() {
   const assetCategory = await prisma.category.findUnique({ where: { slug: 'asset' } })
 
   const automationTag = await prisma.tag.findUnique({ where: { slug: 'automation' } })
-  const promptTag = await prisma.tag.findUnique({ where: { slug: 'prompt' } })
   const proTag = await prisma.tag.findUnique({ where: { slug: 'pro' } })
-  const premiumTag = await prisma.tag.findUnique({ where: { slug: 'premium' } })
 
   const products = [
     {
@@ -137,11 +185,11 @@ async function main() {
       slug: 'dragon-slayer-script',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Powerful automation script with legendary capabilities',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A legendary automation script that helps you conquer any task. Features include auto-retry, error handling, and multi-threading support.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A legendary automation script that helps you conquer any task. Features include auto-retry, error handling, and multi-threading support.' }] }] }),
       price: 299000,
       compareAtPrice: 499000,
       rarity: Rarity.LEGENDARY,
-      stats: { automation: 10, speed: 9, reliability: 10 },
+      stats: JSON.stringify({ automation: 10, speed: 9, reliability: 10 }),
       deliveryType: DeliveryType.FILE,
       categoryId: scriptCategory?.id,
       seoTitle: 'Dragon Slayer Script - Premium Automation',
@@ -153,11 +201,11 @@ async function main() {
       slug: 'phoenix-bot-pro',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Epic bot that rises from any failure',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The Phoenix Bot automatically recovers from errors and continues operation. Perfect for 24/7 automation needs.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The Phoenix Bot automatically recovers from errors and continues operation. Perfect for 24/7 automation needs.' }] }] }),
       price: 199000,
       compareAtPrice: 349000,
       rarity: Rarity.EPIC,
-      stats: { automation: 8, speed: 7, reliability: 9 },
+      stats: JSON.stringify({ automation: 8, speed: 7, reliability: 9 }),
       deliveryType: DeliveryType.LICENSE_KEY,
       categoryId: botCategory?.id,
       seoTitle: 'Phoenix Bot Pro - Resilient Automation',
@@ -169,10 +217,10 @@ async function main() {
       slug: 'shadow-walker-bot',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Stealthy bot for discrete operations',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Operates silently in the background. Low resource usage, high efficiency.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Operates silently in the background. Low resource usage, high efficiency.' }] }] }),
       price: 149000,
       rarity: Rarity.RARE,
-      stats: { automation: 7, speed: 8, stealth: 10 },
+      stats: JSON.stringify({ automation: 7, speed: 8, stealth: 10 }),
       deliveryType: DeliveryType.FILE,
       categoryId: botCategory?.id,
       publishedAt: new Date(),
@@ -182,11 +230,11 @@ async function main() {
       slug: 'ai-prompt-master-collection',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Legendary collection of 500+ AI prompts',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A curated collection of 500+ prompts for ChatGPT, Claude, and other AI assistants. Covers coding, writing, business, and creativity.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A curated collection of 500+ prompts for ChatGPT, Claude, and other AI assistants. Covers coding, writing, business, and creativity.' }] }] }),
       price: 149000,
       compareAtPrice: 299000,
       rarity: Rarity.LEGENDARY,
-      stats: { prompts: 500, categories: 20, quality: 10 },
+      stats: JSON.stringify({ prompts: 500, categories: 20, quality: 10 }),
       deliveryType: DeliveryType.FILE,
       categoryId: aiCategory?.id,
       publishedAt: new Date(),
@@ -196,10 +244,10 @@ async function main() {
       slug: 'basic-automation-script',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Simple yet effective automation',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Perfect for beginners. Easy to set up and use. Includes documentation and video tutorial.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Perfect for beginners. Easy to set up and use. Includes documentation and video tutorial.' }] }] }),
       price: 49000,
       rarity: Rarity.COMMON,
-      stats: { automation: 5, speed: 5, ease: 10 },
+      stats: JSON.stringify({ automation: 5, speed: 5, ease: 10 }),
       deliveryType: DeliveryType.FILE,
       categoryId: scriptCategory?.id,
       publishedAt: new Date(),
@@ -209,10 +257,10 @@ async function main() {
       slug: 'warrior-script-pack',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Battle-tested scripts for serious users',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '5 powerful scripts in one pack. Tested in production environments.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '5 powerful scripts in one pack. Tested in production environments.' }] }] }),
       price: 199000,
       rarity: Rarity.RARE,
-      stats: { scripts: 5, automation: 8, value: 9 },
+      stats: JSON.stringify({ scripts: 5, automation: 8, value: 9 }),
       deliveryType: DeliveryType.FILE,
       categoryId: scriptCategory?.id,
       publishedAt: new Date(),
@@ -222,10 +270,10 @@ async function main() {
       slug: 'ebook-mastering-automation',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Complete guide to automation mastery',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '200+ pages of automation knowledge. From basics to advanced techniques.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '200+ pages of automation knowledge. From basics to advanced techniques.' }] }] }),
       price: 79000,
       rarity: Rarity.RARE,
-      stats: { pages: 200, chapters: 15, exercises: 50 },
+      stats: JSON.stringify({ pages: 200, chapters: 15, exercises: 50 }),
       deliveryType: DeliveryType.FILE,
       categoryId: ebookCategory?.id,
       publishedAt: new Date(),
@@ -235,10 +283,10 @@ async function main() {
       slug: 'ai-assistant-config-pack',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Pre-configured AI assistant setups',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ready-to-use configurations for various AI assistants. Optimized for productivity.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Ready-to-use configurations for various AI assistants. Optimized for productivity.' }] }] }),
       price: 99000,
       rarity: Rarity.EPIC,
-      stats: { configs: 10, platforms: 5, setup_time: 5 },
+      stats: JSON.stringify({ configs: 10, platforms: 5, setup_time: 5 }),
       deliveryType: DeliveryType.EXTERNAL_LINK,
       externalLink: 'https://example.com/ai-config',
       categoryId: aiCategory?.id,
@@ -249,10 +297,10 @@ async function main() {
       slug: 'fantasy-ui-asset-pack',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Premium fantasy-themed UI components',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '100+ UI components with fantasy theme. Includes buttons, cards, frames, and icons.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: '100+ UI components with fantasy theme. Includes buttons, cards, frames, and icons.' }] }] }),
       price: 129000,
       rarity: Rarity.EPIC,
-      stats: { components: 100, formats: 3, resolution: 4 },
+      stats: JSON.stringify({ components: 100, formats: 3, resolution: 4 }),
       deliveryType: DeliveryType.FILE,
       categoryId: assetCategory?.id,
       publishedAt: new Date(),
@@ -262,11 +310,11 @@ async function main() {
       slug: 'mythic-bot-framework',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Build legendary bots with this framework',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A complete framework for building your own bots. Includes templates and documentation.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A complete framework for building your own bots. Includes templates and documentation.' }] }] }),
       price: 349000,
       compareAtPrice: 499000,
       rarity: Rarity.LEGENDARY,
-      stats: { templates: 20, modules: 50, support_months: 12 },
+      stats: JSON.stringify({ templates: 20, modules: 50, support_months: 12 }),
       deliveryType: DeliveryType.LICENSE_KEY,
       categoryId: botCategory?.id,
       publishedAt: new Date(),
@@ -276,10 +324,10 @@ async function main() {
       slug: 'starter-script-bundle',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Everything you need to start',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A bundle of 3 beginner-friendly scripts with complete documentation.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'A bundle of 3 beginner-friendly scripts with complete documentation.' }] }] }),
       price: 39000,
       rarity: Rarity.COMMON,
-      stats: { scripts: 3, difficulty: 1, docs: 10 },
+      stats: JSON.stringify({ scripts: 3, difficulty: 1, docs: 10 }),
       deliveryType: DeliveryType.FILE,
       categoryId: scriptCategory?.id,
       publishedAt: new Date(),
@@ -289,10 +337,10 @@ async function main() {
       slug: 'pro-prompt-engineering-guide',
       status: ProductStatus.PUBLISHED,
       shortDescription: 'Master the art of AI prompting',
-      description: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Learn advanced prompt engineering techniques used by professionals.' }] }] },
+      description: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Learn advanced prompt engineering techniques used by professionals.' }] }] }),
       price: 89000,
       rarity: Rarity.RARE,
-      stats: { techniques: 50, examples: 100, templates: 30 },
+      stats: JSON.stringify({ techniques: 50, examples: 100, templates: 30 }),
       deliveryType: DeliveryType.FILE,
       categoryId: aiCategory?.id,
       publishedAt: new Date(),
@@ -325,9 +373,9 @@ async function main() {
       })
     }
   }
-  console.log('✅ Products created')
+  console.log('✅ Products created/verified')
 
-  // Add license keys for LICENSE_KEY products
+  // ==================== LICENSE KEYS ====================
   const licenseProducts = await prisma.product.findMany({
     where: { deliveryType: DeliveryType.LICENSE_KEY }
   })
@@ -337,12 +385,12 @@ async function main() {
     if (existingKeys === 0) {
       const keys = Array.from({ length: 10 }, () => ({
         productId: product.id,
-        key: `${product.slug.toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+        key: `${product.slug.toUpperCase().replace(/-/g, '')}-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
       }))
       await prisma.licenseKey.createMany({ data: keys })
     }
   }
-  console.log('✅ License keys created')
+  console.log('✅ License keys created/verified')
 
   console.log('🎉 Seed completed successfully!')
 }

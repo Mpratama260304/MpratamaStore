@@ -1,6 +1,9 @@
 import { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
+
+// Force dynamic rendering - database required at runtime
+export const dynamic = 'force-dynamic'
 import { ProductDetails } from "./product-details"
 
 interface ProductPageProps {

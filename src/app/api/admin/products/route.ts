@@ -42,17 +42,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse description if it's a string
-    let description = null
+    let description: string | null = null
     if (validatedData.description) {
       try {
-        description = JSON.parse(validatedData.description)
+        // Validate it's valid JSON and stringify
+        JSON.parse(validatedData.description)
+        description = validatedData.description
       } catch {
-        description = {
+        // Convert plain text to TipTap format and stringify
+        description = JSON.stringify({
           type: "doc",
           content: [{ type: "paragraph", content: [{ type: "text", text: validatedData.description }] }]
-        }
+        })
       }
     }
+    
+    // Stringify stats for SQLite
+    const stats = validatedData.stats ? JSON.stringify(validatedData.stats) : null
 
     const product = await prisma.product.create({
       data: {
@@ -68,7 +74,7 @@ export async function POST(request: NextRequest) {
         isSoldOut: validatedData.isSoldOut,
         deliveryType: validatedData.deliveryType,
         categoryId: validatedData.categoryId,
-        stats: validatedData.stats,
+        stats: stats,
         images: {
           create: validatedData.images.map((img, index) => ({
             url: img.url,

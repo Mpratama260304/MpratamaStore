@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { formatPrice, getRarityGlow } from "@/lib/utils"
+import { formatPrice, getRarityGlow, parseStats } from "@/lib/utils"
 import { useCart } from "@/hooks/use-cart"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -24,7 +24,6 @@ import {
   ShoppingCart,
   Package,
 } from "lucide-react"
-import type { JsonValue } from "@prisma/client/runtime/library"
 
 interface Product {
   id: string
@@ -35,7 +34,7 @@ interface Product {
   compareAtPrice: number | null
   rarity: string
   isSoldOut: boolean
-  stats: JsonValue
+  stats: string | null  // JSON stored as string (SQLite)
   images: { url: string; alt: string | null }[]
   category: { name: string; slug: string } | null
 }
@@ -212,9 +211,9 @@ export function ProductGrid({
                 </p>
                 
                 {/* Stats */}
-                {product.stats && (
+                {parseStats(product.stats) && (
                   <div className="flex gap-2 mb-3 flex-wrap">
-                    {Object.entries(product.stats as Record<string, number>).slice(0, 3).map(([key, value]) => (
+                    {Object.entries(parseStats(product.stats)!).slice(0, 3).map(([key, value]) => (
                       <div key={key} className="text-xs bg-secondary/50 px-2 py-1 rounded">
                         <span className="text-muted-foreground">{key}:</span>{" "}
                         <span className="text-purple-400">{value}</span>

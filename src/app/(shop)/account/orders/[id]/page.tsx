@@ -2,6 +2,9 @@ import { notFound, redirect } from "next/navigation"
 import Link from "next/link"
 import { requireAuth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+
+// Force dynamic rendering - database required at runtime
+export const dynamic = 'force-dynamic'
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"

@@ -3,68 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
-}
-
-// ==================== ENUMS ====================
-
-enum Role {
-  ADMIN
-  CUSTOMER
-}
-
-enum ProductStatus {
-  DRAFT
-  PUBLISHED
-  ARCHIVED
-}
-
-enum Rarity {
-  COMMON
-  RARE
-  EPIC
-  LEGENDARY
-}
-
-enum DeliveryType {
-  FILE
-  LICENSE_KEY
-  EXTERNAL_LINK
-}
-
-enum OrderStatus {
-  CREATED
-  PENDING_PAYMENT
-  PAYMENT_REVIEW
-  PAID
-  FULFILLED
-  REJECTED
-  CANCELED
-  REFUNDED
-}
-
-enum PaymentMethod {
-  MANUAL_TRANSFER
-  GATEWAY
-}
-
-enum GatewayProvider {
-  MIDTRANS
-  STRIPE
-  PAYPAL
-}
-
-enum PaymentProofStatus {
-  SUBMITTED
-  APPROVED
-  REJECTED
-}
-
-enum PaymentMode {
-  MANUAL
-  GATEWAY
-  BOTH
 }
 
 // ==================== USER & AUTH ====================
@@ -74,7 +14,7 @@ model User {
   email        String   @unique
   username     String   @unique
   passwordHash String
-  role         Role     @default(CUSTOMER)
+  role         String   @default("CUSTOMER")
   
   // Profile
   firstName    String?
@@ -159,31 +99,31 @@ model Tag {
 }
 
 model Product {
-  id               String        @id @default(cuid())
+  id               String   @id @default(cuid())
   name             String
-  slug             String        @unique
-  status           ProductStatus @default(DRAFT)
+  slug             String   @unique
+  status           String   @default("DRAFT")
   
   // Content
   shortDescription String?
-  description      Json?         // Rich text JSON from TipTap
+  description      String?  // Rich text JSON from TipTap (stored as string)
   
   // Pricing
-  price            Int           // in smallest currency unit (e.g., cents or IDR)
+  price            Int      // in smallest currency unit (e.g., cents or IDR)
   compareAtPrice   Int?
-  currency         String        @default("IDR")
+  currency         String   @default("IDR")
   
   // Inventory
-  stock            Int?          // null = unlimited
-  isSoldOut        Boolean       @default(false)
+  stock            Int?     // null = unlimited
+  isSoldOut        Boolean  @default(false)
   
   // Fantasy theme
-  rarity           Rarity        @default(COMMON)
-  stats            Json?         // { automation: 10, speed: 3, etc }
+  rarity           String   @default("COMMON")
+  stats            String?  // JSON stored as string
   
   // Delivery
-  deliveryType     DeliveryType  @default(FILE)
-  externalLink     String?       // for EXTERNAL_LINK type
+  deliveryType     String   @default("FILE")
+  externalLink     String?  // for EXTERNAL_LINK type
   
   // SEO
   seoTitle         String?
@@ -193,12 +133,12 @@ model Product {
   
   // Timestamps
   publishedAt      DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   
   // Relations
   categoryId       String?
-  category         Category?     @relation(fields: [categoryId], references: [id])
+  category         Category? @relation(fields: [categoryId], references: [id])
   tags             Tag[]
   images           ProductImage[]
   digitalAsset     DigitalAsset?
@@ -300,21 +240,21 @@ model CartItem {
 // ==================== ORDERS ====================
 
 model Order {
-  id              String         @id @default(cuid())
-  orderNumber     String         @unique
-  status          OrderStatus    @default(CREATED)
+  id              String   @id @default(cuid())
+  orderNumber     String   @unique
+  status          String   @default("CREATED")
   
   // Pricing
   subtotal        Int
-  discount        Int            @default(0)
+  discount        Int      @default(0)
   total           Int
-  currency        String         @default("IDR")
+  currency        String   @default("IDR")
   
   // Payment
-  paymentMethod   PaymentMethod
-  gatewayProvider GatewayProvider?
+  paymentMethod   String
+  gatewayProvider String?
   gatewayReference String?
-  gatewayData     Json?
+  gatewayData     String?  // JSON stored as string
   
   // Customer snapshot
   customerName    String
@@ -328,12 +268,12 @@ model Order {
   // Timestamps
   paidAt          DateTime?
   fulfilledAt     DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
   
   // Relations
   userId          String?
-  user            User?          @relation(fields: [userId], references: [id])
+  user            User?    @relation(fields: [userId], references: [id])
   items           OrderItem[]
   paymentProofs   PaymentProof[]
   
@@ -344,38 +284,38 @@ model Order {
 }
 
 model OrderItem {
-  id                   String       @id @default(cuid())
+  id                   String   @id @default(cuid())
   
   // Snapshot at order time
   productName          String
   productPrice         Int
-  productRarity        Rarity
-  quantity             Int          @default(1)
-  deliveryType         DeliveryType
+  productRarity        String
+  quantity             Int      @default(1)
+  deliveryType         String
   
   // Delivery status
-  digitalAccessGranted Boolean      @default(false)
-  downloadCount        Int          @default(0)
+  digitalAccessGranted Boolean  @default(false)
+  downloadCount        Int      @default(0)
   lastDownloadAt       DateTime?
   
   // For external links
   deliveredLink        String?
   
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
   
   // Relations
   orderId              String
-  order                Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order                Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId            String
-  product              Product      @relation(fields: [productId], references: [id])
+  product              Product  @relation(fields: [productId], references: [id])
   licenseKeys          LicenseKey[]
   
   @@index([orderId])
 }
 
 model PaymentProof {
-  id        String             @id @default(cuid())
+  id        String   @id @default(cuid())
   
   // Submitter info
   name      String
@@ -383,23 +323,23 @@ model PaymentProof {
   phone     String?
   
   // Payment details
-  method    String             // BCA, DANA, etc.
+  method    String   // BCA, DANA, etc.
   amount    Int
-  proofUrl  String             // uploaded image
+  proofUrl  String   // uploaded image
   
   // Status
-  status    PaymentProofStatus @default(SUBMITTED)
-  notes     String?            // admin notes
+  status    String   @default("SUBMITTED")
+  notes     String?  // admin notes
   
   // Timestamps
   reviewedAt DateTime?
   reviewedBy String?
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
   
   // Relations
   orderId   String
-  order     Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   
   @@index([orderId])
   @@index([status])
@@ -456,26 +396,26 @@ model SeoSetting {
 }
 
 model PaymentSetting {
-  id               String          @id @default("payment-settings")
+  id               String   @id @default("payment-settings")
   
-  mode             PaymentMode     @default(BOTH)
-  gatewayProvider  GatewayProvider?
+  mode             String   @default("BOTH")
+  gatewayProvider  String?
   
   // Gateway keys (encrypted in production)
   midtransServerKey  String?
   midtransClientKey  String?
-  midtransIsProduction Boolean     @default(false)
+  midtransIsProduction Boolean @default(false)
   
   stripeSecretKey    String?
   stripePublishableKey String?
   stripeWebhookSecret String?
   
-  // Manual transfer accounts
-  manualAccounts   Json?           // [{ bank: "BCA", accountNumber: "xxx", accountName: "xxx" }]
+  // Manual transfer accounts (JSON stored as string)
+  manualAccounts   String?
   manualInstructions String?
   
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 // ==================== AUDIT ====================
@@ -487,7 +427,7 @@ model AuditLog {
   entityType  String   // e.g., "Product", "Order"
   entityId    String?
   
-  metadata    Json?    // additional context
+  metadata    String?  // JSON stored as string
   ipAddress   String?
   userAgent   String?
   

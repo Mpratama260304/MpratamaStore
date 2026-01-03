@@ -52,3 +52,5 @@ prisma/migrations/*_migration.sql
 public/uploads/*
 !public/uploads/.gitkeep
 !public/uploads/payment-proofs/.gitkeep
+*.db
+prisma/migrations/0_init

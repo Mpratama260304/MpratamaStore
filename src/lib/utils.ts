@@ -88,6 +88,36 @@ export function getStatusColor(status: string): string {
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * Safely parse JSON string fields (for SQLite compatibility)
+ * Returns null if parsing fails
+ */
+export function parseJsonField<T>(value: string | null | undefined): T | null {
+  if (!value) return null
+  try {
+    return JSON.parse(value) as T
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Parse stats field from database (JSON string) to Record
+ */
+export function parseStats(stats: string | null | undefined): Record<string, number> | null {
+  return parseJsonField<Record<string, number>>(stats)
+}
+
+/**
+ * Parse description field from database (JSON string) to TipTap document
+ */
+export function parseDescription(description: string | null | undefined): {
+  type: string
+  content: Array<{ type: string; content?: Array<{ type: string; text: string }> }>
+} | null {
+  return parseJsonField(description)
+}
+
 // Zero-decimal currencies for Stripe (amount is in whole units, not cents)
 // IMPORTANT: As of Stripe API 2025-12-15, IDR is NOT in this list!
 // IDR is treated as two-decimal currency by Stripe.

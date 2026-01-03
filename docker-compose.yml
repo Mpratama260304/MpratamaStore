@@ -1,41 +1,47 @@
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: mpratama-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: mpratama_store
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+# ============================================
+# Local Development Docker Compose
+# MpratamaStore - Next.js E-commerce with SQLite
+# ============================================
+# 
+# For local development, you can run Next.js directly with:
+#   DATABASE_URL="file:./dev.db" npm run dev
+#
+# Or use Docker:
+#   docker-compose up
+# ============================================
 
-  # Production app service (uncomment to use)
-  # app:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   container_name: mpratama-app
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/mpratama_store
-  #     - NEXTAUTH_SECRET=your-secret-key-change-in-production
-  #     - NEXTAUTH_URL=http://localhost:3000
-  #     - NEXT_PUBLIC_APP_URL=http://localhost:3000
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   volumes:
-  #     - uploads:/app/public/uploads
-  #   restart: unless-stopped
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mpratama-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/data/app.db
+      - AUTH_SECRET=dev-secret-change-in-production
+      - JWT_SECRET=dev-jwt-secret-change-in-production
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - NEXT_PUBLIC_SITE_URL=http://localhost:3000
+      - NEXT_PUBLIC_BASE_URL=http://localhost:3000
+      - ADMIN_EMAIL=admin@example.com
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+    volumes:
+      # Persist SQLite database
+      - app_data:/data
+      # Persist uploads
+      - uploads:/app/public/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
 
 volumes:
-  postgres_data:
-  # uploads:
+  app_data:
+  uploads:

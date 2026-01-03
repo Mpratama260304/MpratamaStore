@@ -1,11 +1,11 @@
 # ============================================
 # Multi-stage Dockerfile for MpratamaStore
-# Next.js 14 + Prisma + PostgreSQL
+# Next.js 14 + Prisma + SQLite (Internal DB)
 # ============================================
 
 # Stage 1: Dependencies
 FROM node:20-alpine AS deps
-RUN apk add --no-cache libc6-compat openssl
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Copy package files
@@ -15,13 +15,13 @@ COPY prisma ./prisma/
 # Install dependencies
 RUN npm ci
 
-# Generate Prisma Client
+# Generate Prisma Client for SQLite
 RUN npx prisma generate
 
 # ============================================
 # Stage 2: Builder
 FROM node:20-alpine AS builder
-RUN apk add --no-cache libc6-compat openssl
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
 # Copy dependencies from deps stage
@@ -32,6 +32,12 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# Dummy DATABASE_URL for build time (SQLite file path, doesn't need actual connection)
+ENV DATABASE_URL="file:/data/app.db"
+
+# Skip database connection during build
+ENV SKIP_ENV_VALIDATION=1
+
 # Build the application
 RUN npm run build
 
@@ -40,9 +46,7 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Install openssl for Prisma
-RUN apk add --no-cache openssl
-
+# No need for openssl with SQLite - much simpler!
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -50,9 +54,16 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# Create /data directory for SQLite database with proper permissions
+RUN mkdir -p /data && chown nextjs:nodejs /data
+
 # Copy necessary files from builder
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/scripts ./scripts
+
+# Ensure start script is executable
+RUN chmod +x ./scripts/start.sh
 
 # Set correct permissions for prerender cache
 RUN mkdir .next
@@ -66,18 +77,25 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
+# Copy dependencies needed for seed script
+COPY --from=builder /app/node_modules/argon2 ./node_modules/argon2
+COPY --from=builder /app/node_modules/tsx ./node_modules/tsx 2>/dev/null || true
+COPY --from=builder /app/package.json ./package.json
+
 # Switch to non-root user
 USER nextjs
 
 # Expose port
 EXPOSE 3000
 
+# Environment defaults
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+ENV DATABASE_URL="file:/data/app.db"
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 
-# Start the application
-CMD ["node", "server.js"]
+# Start the application using the startup script
+CMD ["sh", "./scripts/start.sh"]

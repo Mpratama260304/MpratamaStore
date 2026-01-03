@@ -53,14 +53,21 @@ export async function createAuditLog(params: AuditLogParams) {
       actorId = session?.user.id
     }
 
+    // Build metadata object and stringify for SQLite
+    let metadata: string | null = null
+    if (params.description || params.metadata) {
+      const metaObj = params.description 
+        ? { description: params.description, ...(params.metadata as object || {}) }
+        : params.metadata
+      metadata = metaObj ? JSON.stringify(metaObj) : null
+    }
+
     await prisma.auditLog.create({
       data: {
         action: params.action,
         entityType: params.entityType,
         entityId: params.entityId,
-        metadata: params.description 
-          ? { description: params.description, ...(params.metadata as object || {}) }
-          : params.metadata ?? Prisma.JsonNull,
+        metadata,
         actorId,
         ipAddress: params.ipAddress,
         userAgent: params.userAgent,

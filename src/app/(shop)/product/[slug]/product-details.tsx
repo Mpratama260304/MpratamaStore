@@ -12,7 +12,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { formatPrice, getRarityGlow, getRarityColor } from "@/lib/utils"
+import { formatPrice, getRarityGlow, getRarityColor, parseStats, parseDescription } from "@/lib/utils"
 import { useCart } from "@/hooks/use-cart"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -26,8 +26,6 @@ import {
   Shield,
   FileText,
 } from "lucide-react"
-
-import type { JsonValue } from "@prisma/client/runtime/library"
 
 interface ProductImage {
   id: string
@@ -51,13 +49,13 @@ interface Product {
   name: string
   slug: string
   shortDescription: string | null
-  description: JsonValue
+  description: string | null  // JSON stored as string (SQLite)
   price: number
   compareAtPrice: number | null
   currency: string
   rarity: string
   isSoldOut: boolean
-  stats: JsonValue
+  stats: string | null  // JSON stored as string (SQLite)
   deliveryType: string
   images: ProductImage[]
   category: Category | null
@@ -111,7 +109,8 @@ export function ProductDetails({ product, relatedProducts }: ProductDetailsProps
   const renderDescription = () => {
     if (!product.description) return null
     
-    const desc = product.description as { type: string; content: Array<{ type: string; content?: Array<{ type: string; text: string }> }> }
+    const desc = parseDescription(product.description)
+    if (!desc) return <p>{product.description}</p>
     
     if (desc.type === "doc" && desc.content) {
       return desc.content.map((block, i) => {
@@ -128,7 +127,7 @@ export function ProductDetails({ product, relatedProducts }: ProductDetailsProps
       })
     }
     
-    return <p>{JSON.stringify(product.description)}</p>
+    return <p>{product.description}</p>
   }
 
   return (
@@ -215,14 +214,14 @@ export function ProductDetails({ product, relatedProducts }: ProductDetailsProps
           </div>
 
           {/* Stats */}
-          {product.stats && (
+          {parseStats(product.stats) && (
             <div className="bg-secondary/30 rounded-xl p-4">
               <h3 className="font-semibold mb-3 flex items-center gap-2">
                 <Zap className="h-4 w-4 text-purple-400" />
                 Item Stats
               </h3>
               <div className="grid grid-cols-3 gap-4">
-                {Object.entries(product.stats as Record<string, number>).map(([key, value]) => (
+                {Object.entries(parseStats(product.stats)!).map(([key, value]) => (
                   <div key={key} className="text-center">
                     <div className="text-2xl font-bold text-purple-400">{value}</div>
                     <div className="text-xs text-muted-foreground capitalize">{key}</div>

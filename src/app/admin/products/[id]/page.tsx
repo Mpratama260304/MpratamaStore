@@ -1,5 +1,9 @@
 import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
+import { parseStats } from "@/lib/utils"
+
+// Force dynamic rendering - database required at runtime
+export const dynamic = 'force-dynamic'
 import { ProductForm } from "../product-form"
 
 interface Props {
@@ -28,7 +32,7 @@ export default async function EditProductPage({ params }: Props) {
     name: product.name,
     slug: product.slug,
     shortDescription: product.shortDescription || "",
-    description: product.description ? JSON.stringify(product.description) : "",
+    description: product.description || "",
     price: product.price,
     compareAtPrice: product.compareAtPrice || null,
     currency: product.currency,
@@ -39,7 +43,7 @@ export default async function EditProductPage({ params }: Props) {
     categoryId: product.categoryId,
     tagIds: product.tags.map((t) => t.id),
     images: product.images.map((img) => ({ url: img.url, alt: img.alt || "" })),
-    stats: product.stats as Record<string, number> || { power: 50, utility: 50, rarity: 50 },
+    stats: parseStats(product.stats) || { power: 50, utility: 50, rarity: 50 },
   }
 
   return <ProductForm product={formattedProduct} categories={categories} tags={tags} />

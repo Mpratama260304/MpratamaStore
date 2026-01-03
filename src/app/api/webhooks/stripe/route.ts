@@ -110,16 +110,24 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     return
   }
 
+  // Parse existing gatewayData if present
+  let existingData: Record<string, unknown> = {}
+  if (existingOrder.gatewayData) {
+    try {
+      existingData = JSON.parse(existingOrder.gatewayData)
+    } catch {
+      existingData = {}
+    }
+  }
+
   // Update order to PAID
   await prisma.order.update({
     where: { id: orderId },
     data: {
       status: "PAID",
       paidAt: new Date(),
-      gatewayData: {
-        ...(typeof existingOrder.gatewayData === "object" && existingOrder.gatewayData !== null
-          ? existingOrder.gatewayData
-          : {}),
+      gatewayData: JSON.stringify({
+        ...existingData,
         sessionId: session.id,
         paymentIntentId: typeof session.payment_intent === "string" 
           ? session.payment_intent 
@@ -128,7 +136,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         amountTotal: session.amount_total,
         currency: session.currency,
         completedAt: new Date().toISOString(),
-      },
+      }),
     },
   })
 
@@ -154,10 +162,10 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
       where: { id: orderId },
       data: {
         status: "CANCELED",
-        gatewayData: {
+        gatewayData: JSON.stringify({
           sessionId: session.id,
           expiredAt: new Date().toISOString(),
-        },
+        }),
       },
     })
     console.log(`Stripe webhook: Order ${orderId} expired/canceled`)
@@ -185,11 +193,11 @@ async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
       await prisma.order.update({
         where: { id: order.id },
         data: {
-          gatewayData: {
+          gatewayData: JSON.stringify({
             paymentIntentId: paymentIntent.id,
             failedAt: new Date().toISOString(),
             lastError: paymentIntent.last_payment_error?.message,
-          },
+          }),
         },
       })
       console.log(`Stripe webhook: Payment failed for order ${order.id}`)

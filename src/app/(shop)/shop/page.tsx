@@ -1,7 +1,12 @@
 import { Metadata } from "next"
+import { withDb, isDbEnabled } from "@/lib/db"
 import { prisma } from "@/lib/prisma"
 import { ShopFilters } from "./shop-filters"
 import { ProductGrid } from "./product-grid"
+import { DbOfflineNotice } from "@/components/db-offline-notice"
+
+// Force dynamic rendering - database required at runtime
+export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
   title: "Shop",
@@ -22,6 +27,12 @@ interface ShopPageProps {
 }
 
 async function getProducts(params: ShopPageProps["searchParams"]) {
+  const defaultResult = { products: [], total: 0, page: 1, totalPages: 0, fromDb: false }
+  
+  if (!isDbEnabled()) {
+    return defaultResult
+  }
+
   const page = parseInt(params.page || "1")
   const limit = 12
   const skip = (page - 1) * limit
@@ -69,37 +80,67 @@ async function getProducts(params: ShopPageProps["searchParams"]) {
     orderBy = { name: "asc" }
   }
 
-  const [products, total] = await Promise.all([
-    prisma.product.findMany({
-      where,
-      include: {
-        images: { orderBy: { sortOrder: "asc" }, take: 1 },
-        category: true,
-      },
-      orderBy,
-      take: limit,
-      skip,
-    }),
-    prisma.product.count({ where }),
-  ])
+  const result = await withDb(
+    async (db) => {
+      const [products, total] = await Promise.all([
+        db.product.findMany({
+          where,
+          include: {
+            images: { orderBy: { sortOrder: "asc" }, take: 1 },
+            category: true,
+          },
+          orderBy,
+          take: limit,
+          skip,
+        }),
+        db.product.count({ where }),
+      ])
+      return { products, total, page, totalPages: Math.ceil(total / limit) }
+    },
+    { products: [], total: 0, page: 1, totalPages: 0 },
+    'getProducts'
+  )
 
-  return { products, total, page, totalPages: Math.ceil(total / limit) }
+  return { ...result.data, fromDb: result.fromDb }
 }
 
 async function getCategories() {
-  return prisma.category.findMany({
-    include: {
-      _count: { select: { products: { where: { status: "PUBLISHED" } } } },
+  if (!isDbEnabled()) {
+    return { categories: [], fromDb: false }
+  }
+
+  const result = await withDb(
+    async (db) => {
+      return db.category.findMany({
+        include: {
+          _count: { select: { products: { where: { status: "PUBLISHED" } } } },
+        },
+        orderBy: { sortOrder: "asc" },
+      })
     },
-    orderBy: { sortOrder: "asc" },
-  })
+    [],
+    'getCategories'
+  )
+  return { categories: result.data, fromDb: result.fromDb }
 }
 
 export default async function ShopPage({ searchParams }: ShopPageProps) {
-  const [{ products, total, page, totalPages }, categories] = await Promise.all([
+  const [productsResult, categoriesResult] = await Promise.all([
     getProducts(searchParams),
     getCategories(),
   ])
+
+  const { products, total, page, totalPages, fromDb: productsFromDb } = productsResult
+  const { categories, fromDb: categoriesFromDb } = categoriesResult
+  const dbOffline = !productsFromDb && !categoriesFromDb
+
+  if (dbOffline) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <DbOfflineNotice />
+      </div>
+    )
+  }
 
   return (
     <div className="container mx-auto px-4 py-8">

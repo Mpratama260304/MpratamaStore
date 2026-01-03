@@ -5,6 +5,9 @@ import { Toaster } from "@/components/ui/toaster"
 import { Providers } from "@/components/providers"
 import { getSiteSettings, getSeoSettings } from "@/lib/settings"
 
+// Force dynamic rendering - metadata requires database at runtime
+export const dynamic = 'force-dynamic'
+
 const inter = Inter({ subsets: ["latin"], variable: "--font-geist-sans" })
 
 export async function generateMetadata(): Promise<Metadata> {

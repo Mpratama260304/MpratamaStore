@@ -269,12 +269,12 @@ export async function POST(request: NextRequest) {
       data: {
         gatewayProvider: "STRIPE",
         gatewayReference: checkoutSession.id,
-        gatewayData: {
+        gatewayData: JSON.stringify({
           sessionId: checkoutSession.id,
           paymentIntentId: typeof checkoutSession.payment_intent === "string" 
             ? checkoutSession.payment_intent 
             : checkoutSession.payment_intent?.id || null,
-        },
+        }),
       },
     })
 

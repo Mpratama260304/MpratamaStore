@@ -3,6 +3,9 @@ import { requireAdmin } from "@/lib/auth"
 import { AdminSidebar } from "./components/admin-sidebar"
 import { AdminHeader } from "./components/admin-header"
 
+// Force dynamic rendering - auth check requires database at runtime
+export const dynamic = 'force-dynamic'
+
 export default async function AdminLayout({
   children,
 }: {
