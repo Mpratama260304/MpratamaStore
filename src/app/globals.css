@@ -1,0 +1,201 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 263.4 70% 50.4%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 263.4 70% 50.4%;
+    --radius: 0.5rem;
+    
+    /* Fantasy theme colors */
+    --neon-purple: 263.4 70% 50.4%;
+    --neon-blue: 217 91% 60%;
+    --neon-green: 142 76% 36%;
+    --neon-gold: 45 93% 47%;
+    --rarity-common: 215 20.2% 65.1%;
+    --rarity-rare: 217 91% 60%;
+    --rarity-epic: 263.4 70% 50.4%;
+    --rarity-legendary: 45 93% 47%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .glow-purple {
+    box-shadow: 0 0 20px hsl(263.4 70% 50.4% / 0.5),
+                0 0 40px hsl(263.4 70% 50.4% / 0.3),
+                0 0 60px hsl(263.4 70% 50.4% / 0.1);
+  }
+  
+  .glow-blue {
+    box-shadow: 0 0 20px hsl(217 91% 60% / 0.5),
+                0 0 40px hsl(217 91% 60% / 0.3),
+                0 0 60px hsl(217 91% 60% / 0.1);
+  }
+  
+  .glow-green {
+    box-shadow: 0 0 20px hsl(142 76% 36% / 0.5),
+                0 0 40px hsl(142 76% 36% / 0.3),
+                0 0 60px hsl(142 76% 36% / 0.1);
+  }
+  
+  .glow-gold {
+    box-shadow: 0 0 20px hsl(45 93% 47% / 0.5),
+                0 0 40px hsl(45 93% 47% / 0.3),
+                0 0 60px hsl(45 93% 47% / 0.1);
+  }
+  
+  .card-tilt {
+    transform-style: preserve-3d;
+    transition: transform 0.3s ease;
+  }
+  
+  .card-tilt:hover {
+    transform: perspective(1000px) rotateX(2deg) rotateY(-2deg) scale(1.02);
+  }
+  
+  .rarity-common {
+    @apply border-slate-400;
+    box-shadow: 0 0 10px hsl(215 20.2% 65.1% / 0.3);
+  }
+  
+  .rarity-rare {
+    @apply border-blue-500;
+    box-shadow: 0 0 15px hsl(217 91% 60% / 0.4);
+  }
+  
+  .rarity-epic {
+    @apply border-purple-500;
+    box-shadow: 0 0 20px hsl(263.4 70% 50.4% / 0.5);
+  }
+  
+  .rarity-legendary {
+    @apply border-yellow-500;
+    box-shadow: 0 0 25px hsl(45 93% 47% / 0.6);
+    animation: legendary-pulse 2s ease-in-out infinite;
+  }
+  
+  @keyframes legendary-pulse {
+    0%, 100% {
+      box-shadow: 0 0 25px hsl(45 93% 47% / 0.6);
+    }
+    50% {
+      box-shadow: 0 0 35px hsl(45 93% 47% / 0.8);
+    }
+  }
+  
+  .fantasy-gradient {
+    background: linear-gradient(
+      135deg,
+      hsl(263.4 70% 50.4% / 0.8) 0%,
+      hsl(217 91% 60% / 0.8) 50%,
+      hsl(142 76% 36% / 0.8) 100%
+    );
+  }
+  
+  .text-gradient {
+    background: linear-gradient(
+      135deg,
+      hsl(263.4 70% 50.4%) 0%,
+      hsl(217 91% 60%) 50%,
+      hsl(142 76% 36%) 100%
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(222.2 84% 4.9%);
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(217.2 32.6% 17.5%);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(263.4 70% 50.4%);
+}
+
+/* TipTap Editor Styles */
+.ProseMirror {
+  @apply min-h-[200px] p-4 outline-none;
+}
+
+.ProseMirror p {
+  @apply mb-4;
+}
+
+.ProseMirror h1 {
+  @apply text-3xl font-bold mb-4;
+}
+
+.ProseMirror h2 {
+  @apply text-2xl font-bold mb-3;
+}
+
+.ProseMirror h3 {
+  @apply text-xl font-bold mb-2;
+}
+
+.ProseMirror ul {
+  @apply list-disc list-inside mb-4;
+}
+
+.ProseMirror ol {
+  @apply list-decimal list-inside mb-4;
+}
+
+.ProseMirror blockquote {
+  @apply border-l-4 border-purple-500 pl-4 italic my-4;
+}
+
+.ProseMirror code {
+  @apply bg-secondary px-1 rounded text-sm;
+}
+
+.ProseMirror pre {
+  @apply bg-secondary p-4 rounded-lg my-4 overflow-x-auto;
+}
+
+.ProseMirror a {
+  @apply text-purple-400 hover:text-purple-300 underline;
+}
+
+.ProseMirror img {
+  @apply max-w-full h-auto rounded-lg my-4;
+}

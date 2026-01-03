@@ -1,0 +1,504 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== ENUMS ====================
+
+enum Role {
+  ADMIN
+  CUSTOMER
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum Rarity {
+  COMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+enum DeliveryType {
+  FILE
+  LICENSE_KEY
+  EXTERNAL_LINK
+}
+
+enum OrderStatus {
+  CREATED
+  PENDING_PAYMENT
+  PAYMENT_REVIEW
+  PAID
+  FULFILLED
+  REJECTED
+  CANCELED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  MANUAL_TRANSFER
+  GATEWAY
+}
+
+enum GatewayProvider {
+  MIDTRANS
+  STRIPE
+  PAYPAL
+}
+
+enum PaymentProofStatus {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum PaymentMode {
+  MANUAL
+  GATEWAY
+  BOTH
+}
+
+// ==================== USER & AUTH ====================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(CUSTOMER)
+  
+  // Profile
+  firstName    String?
+  lastName     String?
+  phone        String?
+  avatarUrl    String?
+  
+  // Status
+  isActive     Boolean  @default(true)
+  emailVerified DateTime?
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relations
+  orders       Order[]
+  cart         Cart?
+  auditLogs    AuditLog[]
+  
+  @@index([email])
+  @@index([role])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  email     String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  
+  @@index([token])
+  @@index([email])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  
+  @@index([token])
+  @@index([userId])
+}
+
+// ==================== PRODUCTS ====================
+
+model Category {
+  id             String    @id @default(cuid())
+  name           String
+  slug           String    @unique
+  description    String?
+  imageUrl       String?
+  sortOrder      Int       @default(0)
+  
+  // SEO
+  seoTitle       String?
+  seoDescription String?
+  
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  // Relations
+  products       Product[]
+  
+  @@index([slug])
+}
+
+model Tag {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  // Relations
+  products  Product[]
+  
+  @@index([slug])
+}
+
+model Product {
+  id               String        @id @default(cuid())
+  name             String
+  slug             String        @unique
+  status           ProductStatus @default(DRAFT)
+  
+  // Content
+  shortDescription String?
+  description      Json?         // Rich text JSON from TipTap
+  
+  // Pricing
+  price            Int           // in smallest currency unit (e.g., cents or IDR)
+  compareAtPrice   Int?
+  currency         String        @default("IDR")
+  
+  // Inventory
+  stock            Int?          // null = unlimited
+  isSoldOut        Boolean       @default(false)
+  
+  // Fantasy theme
+  rarity           Rarity        @default(COMMON)
+  stats            Json?         // { automation: 10, speed: 3, etc }
+  
+  // Delivery
+  deliveryType     DeliveryType  @default(FILE)
+  externalLink     String?       // for EXTERNAL_LINK type
+  
+  // SEO
+  seoTitle         String?
+  seoDescription   String?
+  ogImage          String?
+  canonicalUrl     String?
+  
+  // Timestamps
+  publishedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  
+  // Relations
+  categoryId       String?
+  category         Category?     @relation(fields: [categoryId], references: [id])
+  tags             Tag[]
+  images           ProductImage[]
+  digitalAsset     DigitalAsset?
+  licenseKeys      LicenseKey[]
+  cartItems        CartItem[]
+  orderItems       OrderItem[]
+  
+  @@index([slug])
+  @@index([status])
+  @@index([categoryId])
+  @@index([rarity])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  url       String
+  alt       String?
+  sortOrder Int      @default(0)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@index([productId])
+}
+
+model DigitalAsset {
+  id          String   @id @default(cuid())
+  storageKey  String   // path in storage
+  filename    String
+  mimeType    String
+  size        Int      // bytes
+  checksum    String?  // SHA256
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  productId   String   @unique
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model LicenseKey {
+  id          String     @id @default(cuid())
+  key         String     @unique
+  isUsed      Boolean    @default(false)
+  usedAt      DateTime?
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  
+  // Relations
+  productId   String
+  product     Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItemId String?
+  orderItem   OrderItem? @relation(fields: [orderItemId], references: [id])
+  
+  @@index([productId])
+  @@index([isUsed])
+}
+
+// ==================== CART ====================
+
+model Cart {
+  id        String     @id @default(cuid())
+  sessionId String?    @unique // for guest carts
+  
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  
+  // Relations
+  userId    String?    @unique
+  user      User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  
+  @@index([sessionId])
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  quantity  Int      @default(1)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@unique([cartId, productId])
+  @@index([cartId])
+}
+
+// ==================== ORDERS ====================
+
+model Order {
+  id              String         @id @default(cuid())
+  orderNumber     String         @unique
+  status          OrderStatus    @default(CREATED)
+  
+  // Pricing
+  subtotal        Int
+  discount        Int            @default(0)
+  total           Int
+  currency        String         @default("IDR")
+  
+  // Payment
+  paymentMethod   PaymentMethod
+  gatewayProvider GatewayProvider?
+  gatewayReference String?
+  gatewayData     Json?
+  
+  // Customer snapshot
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  
+  // Notes
+  notes           String?
+  adminNotes      String?
+  
+  // Timestamps
+  paidAt          DateTime?
+  fulfilledAt     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  
+  // Relations
+  userId          String?
+  user            User?          @relation(fields: [userId], references: [id])
+  items           OrderItem[]
+  paymentProofs   PaymentProof[]
+  
+  @@index([orderNumber])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id                   String       @id @default(cuid())
+  
+  // Snapshot at order time
+  productName          String
+  productPrice         Int
+  productRarity        Rarity
+  quantity             Int          @default(1)
+  deliveryType         DeliveryType
+  
+  // Delivery status
+  digitalAccessGranted Boolean      @default(false)
+  downloadCount        Int          @default(0)
+  lastDownloadAt       DateTime?
+  
+  // For external links
+  deliveredLink        String?
+  
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  
+  // Relations
+  orderId              String
+  order                Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId            String
+  product              Product      @relation(fields: [productId], references: [id])
+  licenseKeys          LicenseKey[]
+  
+  @@index([orderId])
+}
+
+model PaymentProof {
+  id        String             @id @default(cuid())
+  
+  // Submitter info
+  name      String
+  email     String
+  phone     String?
+  
+  // Payment details
+  method    String             // BCA, DANA, etc.
+  amount    Int
+  proofUrl  String             // uploaded image
+  
+  // Status
+  status    PaymentProofStatus @default(SUBMITTED)
+  notes     String?            // admin notes
+  
+  // Timestamps
+  reviewedAt DateTime?
+  reviewedBy String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  
+  // Relations
+  orderId   String
+  order     Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  @@index([orderId])
+  @@index([status])
+}
+
+// ==================== SETTINGS ====================
+
+model SiteSetting {
+  id              String   @id @default("site-settings")
+  
+  // Identity
+  siteTitle       String   @default("MpratamaStore")
+  siteTagline     String   @default("Fantasy Digital Market — Claim Your Rewards")
+  siteDescription String   @default("Toko produk digital bertema fantasy: script, bot, asset, ebook.")
+  
+  // Branding
+  logoLight       String?
+  logoDark        String?
+  favicon         String?
+  ogImageDefault  String?
+  
+  // UI Toggles
+  maintenanceMode Boolean  @default(false)
+  storeNotice     String?
+  
+  // Theme
+  primaryColor    String   @default("#8B5CF6")
+  accentColor     String   @default("#3B82F6")
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model SeoSetting {
+  id                  String   @id @default("seo-settings")
+  
+  defaultMetaTitle    String   @default("MpratamaStore - Fantasy Digital Market")
+  defaultMetaDescription String @default("Toko produk digital bertema fantasy: script, bot, asset, ebook. Checkout cepat, download aman.")
+  
+  robotsIndex         Boolean  @default(true)
+  robotsFollow        Boolean  @default(true)
+  generateSitemap     Boolean  @default(true)
+  
+  // Social
+  twitterHandle       String?
+  facebookUrl         String?
+  instagramUrl        String?
+  
+  // Analytics
+  googleAnalyticsId   String?
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model PaymentSetting {
+  id               String          @id @default("payment-settings")
+  
+  mode             PaymentMode     @default(BOTH)
+  gatewayProvider  GatewayProvider?
+  
+  // Gateway keys (encrypted in production)
+  midtransServerKey  String?
+  midtransClientKey  String?
+  midtransIsProduction Boolean     @default(false)
+  
+  stripeSecretKey    String?
+  stripePublishableKey String?
+  stripeWebhookSecret String?
+  
+  // Manual transfer accounts
+  manualAccounts   Json?           // [{ bank: "BCA", accountNumber: "xxx", accountName: "xxx" }]
+  manualInstructions String?
+  
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+}
+
+// ==================== AUDIT ====================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  
+  action      String   // e.g., "product.create", "order.approve"
+  entityType  String   // e.g., "Product", "Order"
+  entityId    String?
+  
+  metadata    Json?    // additional context
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  actorId     String?
+  actor       User?    @relation(fields: [actorId], references: [id])
+  
+  @@index([action])
+  @@index([entityType])
+  @@index([actorId])
+  @@index([createdAt])
+}

@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mpratama-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mpratama_store
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Production app service (uncomment to use)
+  # app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: mpratama-app
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/mpratama_store
+  #     - NEXTAUTH_SECRET=your-secret-key-change-in-production
+  #     - NEXTAUTH_URL=http://localhost:3000
+  #     - NEXT_PUBLIC_APP_URL=http://localhost:3000
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   volumes:
+  #     - uploads:/app/public/uploads
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
+  # uploads:
