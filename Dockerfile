@@ -95,11 +95,6 @@ RUN chown -R nextjs:nodejs ./node_modules/@prisma
 COPY --from=builder /app/node_modules/argon2 ./node_modules/argon2
 COPY --from=builder /app/package.json ./package.json
 
-# Copy argon2 native bindings if they exist (needed for password hashing)
-RUN mkdir -p ./node_modules/@phc 2>/dev/null || true
-COPY --from=builder /app/node_modules/@phc ./node_modules/@phc 2>/dev/null || true
-COPY --from=builder /app/node_modules/@mapbox ./node_modules/@mapbox 2>/dev/null || true
-
 # Copy tsx if available (for seed script - fallback)
 RUN if [ -d /app/node_modules/tsx ]; then cp -r /app/node_modules/tsx ./node_modules/tsx; fi || true
 
