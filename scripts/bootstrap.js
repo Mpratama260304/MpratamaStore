@@ -152,17 +152,26 @@ async function createAdminUser(prisma, email, username, password) {
 /**
  * Update existing user to admin role if needed
  */
-async function ensureAdminRole(prisma, existingUser, email) {
+async function ensureAdminRole(prisma, existingUser, email, password) {
+  // Always update password and ensure admin role
+  const hashedPassword = await hashPassword(password);
+  
+  await prisma.user.update({
+    where: { email },
+    data: { 
+      role: Role.ADMIN,
+      passwordHash: hashedPassword,
+      isActive: true,
+      emailVerified: existingUser.emailVerified || new Date(),
+    }
+  });
+  
   if (existingUser.role !== Role.ADMIN) {
-    await prisma.user.update({
-      where: { email },
-      data: { role: Role.ADMIN }
-    });
-    console.log(`   ✅ Updated user role to ADMIN: ${email}`);
-    return true;
+    console.log(`   ✅ Updated user role to ADMIN and reset password: ${email}`);
+  } else {
+    console.log(`   ✅ Admin password updated: ${email}`);
   }
-  console.log(`   ℹ️ Admin user already exists: ${email}`);
-  return false;
+  return true;
 }
 
 /**
@@ -281,8 +290,8 @@ async function ensureAdminUser() {
     const existingAdmin = await adminExists(prisma, adminEmail);
     
     if (existingAdmin) {
-      // User exists - ensure they have admin role
-      await ensureAdminRole(prisma, existingAdmin, adminEmail);
+      // User exists - ensure they have admin role and update password
+      await ensureAdminRole(prisma, existingAdmin, adminEmail, adminPassword);
     } else {
       // Create new admin user - this may fail if schema is not ready
       const newUser = await createAdminUser(prisma, adminEmail, adminUsername, adminPassword);

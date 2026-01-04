@@ -63,9 +63,9 @@ services:
       # ══════════════════════════════════════════════════════════════
       # ADMIN USER (Untuk setup admin pertama kali)
       # ══════════════════════════════════════════════════════════════
-      ADMIN_EMAIL: "admin@example.com"
+      ADMIN_EMAIL: "mpratamagpt@gmail.com"
       ADMIN_USERNAME: "admin"
-      ADMIN_PASSWORD: "SecurePassword123!"
+      ADMIN_PASSWORD: "Anonymous263"
       
       # ══════════════════════════════════════════════════════════════
       # STRIPE PAYMENT (OPSIONAL - untuk credit card payments)
