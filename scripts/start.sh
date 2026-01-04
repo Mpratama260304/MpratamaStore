@@ -34,9 +34,24 @@ echo "   Stripe Configured: $([ -n \"$STRIPE_SECRET_KEY\" ] && echo 'Yes' || ech
 echo "   PayPal Configured: $([ -n \"$PAYPAL_CLIENT_ID\" ] && echo 'Yes' || echo 'No')"
 echo ""
 
-# ==================== STEP 4: Generate Prisma Client ====================
+# ==================== STEP 4: Verify Prisma CLI ====================
+# CRITICAL: Use local prisma binary, NOT npx (which downloads latest version!)
+PRISMA_CLI="node ./node_modules/prisma/build/index.js"
+
+# Verify prisma exists
+if [ ! -f "./node_modules/prisma/build/index.js" ]; then
+  echo "❌ Prisma CLI not found at ./node_modules/prisma/build/index.js"
+  echo "   This means the Docker image was built incorrectly."
+  echo "   Ensure 'prisma' is in dependencies (not devDependencies)."
+  exit 1
+fi
+echo "   ✅ Prisma CLI found"
+$PRISMA_CLI --version
+echo ""
+
+# ==================== STEP 5: Generate Prisma Client ====================
 echo "🔧 Step 2: Generating Prisma Client..."
-npx prisma generate
+$PRISMA_CLI generate
 if [ $? -ne 0 ]; then
   echo "❌ Prisma generate failed!"
   exit 1
@@ -44,9 +59,9 @@ fi
 echo "   ✅ Prisma Client generated"
 echo ""
 
-# ==================== STEP 5: Run Migrations ====================
+# ==================== STEP 6: Run Migrations ====================
 echo "📊 Step 3: Running database migrations..."
-npx prisma migrate deploy 2>/dev/null
+$PRISMA_CLI migrate deploy 2>/dev/null
 MIGRATE_EXIT=$?
 
 if [ $MIGRATE_EXIT -ne 0 ]; then
@@ -54,7 +69,7 @@ if [ $MIGRATE_EXIT -ne 0 ]; then
   echo "   Trying db push for SQLite setup..."
   
   # For first-time setup or SQLite, push the schema directly
-  npx prisma db push --accept-data-loss
+  $PRISMA_CLI db push --accept-data-loss
   if [ $? -ne 0 ]; then
     echo "❌ Schema push also failed. Exiting."
     exit 1
@@ -65,13 +80,13 @@ else
 fi
 echo ""
 
-# ==================== STEP 6: Seed Database ====================
+# ==================== STEP 7: Seed Database ====================
 echo "🌱 Step 4: Running database seed..."
-npx prisma db seed 2>/dev/null || true  # Don't fail if seed has issues (data may already exist)
+$PRISMA_CLI db seed 2>/dev/null || true  # Don't fail if seed has issues (data may already exist)
 echo "   ✅ Seed completed (or data already exists)"
 echo ""
 
-# ==================== STEP 7: Show Database Status ====================
+# ==================== STEP 8: Show Database Status ====================
 echo "📊 Database status:"
 echo "   - Location: /data/app.db"
 if [ -f /data/app.db ]; then
@@ -83,7 +98,7 @@ else
 fi
 echo ""
 
-# ==================== STEP 8: Start Next.js ====================
+# ==================== STEP 9: Start Next.js ====================
 echo "================================================"
 echo "🌐 Starting Next.js server..."
 echo "   Port: ${PORT:-3000}"

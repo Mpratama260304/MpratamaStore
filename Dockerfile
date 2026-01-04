@@ -15,8 +15,8 @@ COPY prisma ./prisma/
 # Install dependencies
 RUN npm ci
 
-# Generate Prisma Client for SQLite
-RUN npx prisma generate
+# Generate Prisma Client for SQLite (using local prisma, NOT npx)
+RUN ./node_modules/.bin/prisma generate
 
 # ============================================
 # Stage 2: Builder
@@ -43,10 +43,13 @@ RUN npm run build
 
 # ============================================
 # Stage 3: Runner (Production)
-FROM node:20-alpine AS runner
+# Using alpine3.18 for OpenSSL 1.1 compatibility with Prisma engines
+FROM node:20-alpine3.18 AS runner
 WORKDIR /app
 
-# No need for openssl with SQLite - much simpler!
+# Install OpenSSL 1.1 for Prisma compatibility with SQLite
+RUN apk add --no-cache openssl1.1-compat
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
@@ -73,9 +76,17 @@ RUN chown nextjs:nodejs .next
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy Prisma client
+# Copy Prisma client AND CLI (prisma CLI is in dependencies, needed for runtime migrate/generate)
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+
+# Create .bin directory and symlink for prisma CLI
+RUN mkdir -p ./node_modules/.bin && \
+    ln -sf ../prisma/build/index.js ./node_modules/.bin/prisma
+
+# Ensure nextjs user can write to @prisma/engines (needed for generate)
+RUN chown -R nextjs:nodejs ./node_modules/@prisma
 
 # Copy dependencies needed for seed script
 COPY --from=builder /app/node_modules/argon2 ./node_modules/argon2
