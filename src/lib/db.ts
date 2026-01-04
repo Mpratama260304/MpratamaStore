@@ -8,6 +8,7 @@
  */
 
 import { PrismaClient } from '@prisma/client'
+import { classifyDbError, DbErrorType, isConnectionError, isMigrationMissingError } from './db-errors'
 
 // Global singleton for PrismaClient
 const globalForPrisma = globalThis as unknown as {
@@ -120,6 +121,11 @@ export async function testDbConnection(timeoutMs: number = 5000): Promise<{
  * Execute a database operation safely with fallback
  * If database is disabled or query fails, returns the fallback value
  * 
+ * IMPORTANT: Now returns errorType to distinguish between:
+ * - connection errors (DB truly offline)
+ * - migration errors (tables don't exist)
+ * - data errors (query succeeded but empty)
+ * 
  * @param operation - Async function that performs the database operation
  * @param fallback - Value to return if operation fails
  * @param operationName - Name for logging purposes
@@ -128,25 +134,40 @@ export async function withDb<T>(
   operation: (prisma: PrismaClient) => Promise<T>,
   fallback: T,
   operationName: string = 'database operation'
-): Promise<{ data: T; fromDb: boolean; error?: string }> {
+): Promise<{ 
+  data: T
+  fromDb: boolean
+  error?: string
+  errorType?: DbErrorType
+}> {
   if (!isDbEnabled()) {
     console.log(`[DB] Skipping ${operationName} - database disabled`)
-    return { data: fallback, fromDb: false, error: 'Database disabled' }
+    return { data: fallback, fromDb: false, error: 'Database disabled', errorType: 'CONNECTION' }
   }
   
   const client = getPrismaClient()
   if (!client) {
     console.log(`[DB] Skipping ${operationName} - no prisma client`)
-    return { data: fallback, fromDb: false, error: 'No database client' }
+    return { data: fallback, fromDb: false, error: 'No database client', errorType: 'CONNECTION' }
   }
   
   try {
     const result = await operation(client)
+    // Success! Data came from database
     return { data: result, fromDb: true }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    console.error(`[DB] Error in ${operationName}:`, errorMessage)
-    return { data: fallback, fromDb: false, error: errorMessage }
+    const errorInfo = classifyDbError(error)
+    
+    console.error(`[DB] Error in ${operationName} (${errorInfo.type}):`, errorMessage)
+    
+    // Return the classified error type so UI can show appropriate message
+    return { 
+      data: fallback, 
+      fromDb: false, 
+      error: errorMessage,
+      errorType: errorInfo.type
+    }
   }
 }
 

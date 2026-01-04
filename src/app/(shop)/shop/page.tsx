@@ -3,7 +3,8 @@ import { withDb, isDbEnabled } from "@/lib/db"
 import { prisma } from "@/lib/prisma"
 import { ShopFilters } from "./shop-filters"
 import { ProductGrid } from "./product-grid"
-import { DbOfflineNotice } from "@/components/db-offline-notice"
+import { DbOfflineNotice, EmptyState } from "@/components/db-offline-notice"
+import { DbErrorType } from "@/lib/db-errors"
 
 // Force dynamic rendering - database required at runtime
 export const dynamic = 'force-dynamic'
@@ -27,10 +28,10 @@ interface ShopPageProps {
 }
 
 async function getProducts(params: ShopPageProps["searchParams"]) {
-  const defaultResult = { products: [], total: 0, page: 1, totalPages: 0, fromDb: false }
+  const defaultResult = { products: [], total: 0, page: 1, totalPages: 0, fromDb: false, errorType: undefined as DbErrorType | undefined }
   
   if (!isDbEnabled()) {
-    return defaultResult
+    return { ...defaultResult, errorType: 'CONNECTION' as DbErrorType }
   }
 
   const page = parseInt(params.page || "1")
@@ -101,12 +102,12 @@ async function getProducts(params: ShopPageProps["searchParams"]) {
     'getProducts'
   )
 
-  return { ...result.data, fromDb: result.fromDb }
+  return { ...result.data, fromDb: result.fromDb, errorType: result.errorType }
 }
 
 async function getCategories() {
   if (!isDbEnabled()) {
-    return { categories: [], fromDb: false }
+    return { categories: [], fromDb: false, errorType: 'CONNECTION' as DbErrorType }
   }
 
   const result = await withDb(
@@ -121,7 +122,7 @@ async function getCategories() {
     [],
     'getCategories'
   )
-  return { categories: result.data, fromDb: result.fromDb }
+  return { categories: result.data, fromDb: result.fromDb, errorType: result.errorType }
 }
 
 export default async function ShopPage({ searchParams }: ShopPageProps) {
@@ -130,14 +131,26 @@ export default async function ShopPage({ searchParams }: ShopPageProps) {
     getCategories(),
   ])
 
-  const { products, total, page, totalPages, fromDb: productsFromDb } = productsResult
-  const { categories, fromDb: categoriesFromDb } = categoriesResult
-  const dbOffline = !productsFromDb && !categoriesFromDb
-
-  if (dbOffline) {
+  const { products, total, page, totalPages, fromDb: productsFromDb, errorType: productsError } = productsResult
+  const { categories, fromDb: categoriesFromDb, errorType: categoriesError } = categoriesResult
+  
+  // Determine the error type
+  const errorType = productsError || categoriesError
+  
+  // Only show full DB offline notice for connection errors
+  if (errorType === 'CONNECTION') {
     return (
       <div className="container mx-auto px-4 py-8">
-        <DbOfflineNotice />
+        <DbOfflineNotice errorType="CONNECTION" />
+      </div>
+    )
+  }
+  
+  // For migration errors, show specific message
+  if (errorType === 'MIGRATION') {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <DbOfflineNotice errorType="MIGRATION" />
       </div>
     )
   }

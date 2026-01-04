@@ -2,6 +2,11 @@
 # ============================================
 # MpratamaStore Startup Script
 # Handles: DB directory, migrations, seed, then starts Next.js
+# 
+# IMPORTANT: Prisma Client is pre-generated at build time!
+# This script does NOT run "prisma generate" because:
+# 1. node_modules is read-only in production
+# 2. Prisma Client was already generated during docker build
 # ============================================
 
 set -e  # Exit on any error
@@ -13,8 +18,7 @@ echo ""
 
 # ==================== STEP 1: Ensure /data directory exists ====================
 echo "📁 Step 1: Ensuring /data directory exists..."
-mkdir -p /data
-chmod 755 /data
+mkdir -p /data 2>/dev/null || true
 echo "   ✅ /data directory ready"
 echo ""
 
@@ -30,8 +34,8 @@ echo ""
 echo "🔧 Environment Info:"
 echo "   NODE_ENV: ${NODE_ENV:-development}"
 echo "   PORT: ${PORT:-3000}"
-echo "   Stripe Configured: $([ -n \"$STRIPE_SECRET_KEY\" ] && echo 'Yes' || echo 'No')"
-echo "   PayPal Configured: $([ -n \"$PAYPAL_CLIENT_ID\" ] && echo 'Yes' || echo 'No')"
+echo "   Stripe: $([ -n \"$STRIPE_SECRET_KEY\" ] && echo 'Configured' || echo 'Not set')"
+echo "   PayPal: $([ -n \"$PAYPAL_CLIENT_ID\" ] && echo 'Configured' || echo 'Not set')"
 echo ""
 
 # ==================== STEP 4: Verify Prisma CLI ====================
@@ -46,35 +50,32 @@ if [ ! -f "./node_modules/prisma/build/index.js" ]; then
   exit 1
 fi
 echo "   ✅ Prisma CLI found"
-$PRISMA_CLI --version
+$PRISMA_CLI --version 2>/dev/null || echo "   (version check skipped)"
 echo ""
 
-# ==================== STEP 5: Generate Prisma Client ====================
-echo "🔧 Step 2: Generating Prisma Client..."
-$PRISMA_CLI generate
-if [ $? -ne 0 ]; then
-  echo "❌ Prisma generate failed!"
-  exit 1
-fi
-echo "   ✅ Prisma Client generated"
+# ==================== STEP 5: Skip Prisma Generate (pre-built) ====================
+# Prisma Client is already generated during Docker build
+# DO NOT run "prisma generate" here - it would fail because node_modules is read-only
+echo "🔧 Step 2: Prisma Client (pre-generated at build time)"
+echo "   ✅ Using pre-built Prisma Client"
 echo ""
 
 # ==================== STEP 6: Run Migrations ====================
 echo "📊 Step 3: Running database migrations..."
-$PRISMA_CLI migrate deploy 2>/dev/null
-MIGRATE_EXIT=$?
+$PRISMA_CLI migrate deploy 2>&1 || MIGRATE_FAILED=1
 
-if [ $MIGRATE_EXIT -ne 0 ]; then
+if [ "$MIGRATE_FAILED" = "1" ]; then
   echo "⚠️  Migration deploy failed (this might be first run)"
   echo "   Trying db push for SQLite setup..."
   
   # For first-time setup or SQLite, push the schema directly
-  $PRISMA_CLI db push --accept-data-loss
-  if [ $? -ne 0 ]; then
-    echo "❌ Schema push also failed. Exiting."
-    exit 1
+  if $PRISMA_CLI db push --accept-data-loss 2>&1; then
+    echo "   ✅ Fresh schema created using db push"
+  else
+    echo "⚠️  Schema push also failed."
+    echo "   Server will start but database may not work correctly."
+    echo "   Check /api/health for detailed status."
   fi
-  echo "   ✅ Fresh schema created using db push"
 else
   echo "   ✅ Migrations applied successfully"
 fi
@@ -82,7 +83,7 @@ echo ""
 
 # ==================== STEP 7: Seed Database ====================
 echo "🌱 Step 4: Running database seed..."
-$PRISMA_CLI db seed 2>/dev/null || true  # Don't fail if seed has issues (data may already exist)
+$PRISMA_CLI db seed 2>&1 || true  # Don't fail if seed has issues (data may already exist)
 echo "   ✅ Seed completed (or data already exists)"
 echo ""
 
@@ -90,11 +91,11 @@ echo ""
 echo "📊 Database status:"
 echo "   - Location: /data/app.db"
 if [ -f /data/app.db ]; then
-  DB_SIZE=$(du -h /data/app.db | cut -f1)
+  DB_SIZE=$(du -h /data/app.db 2>/dev/null | cut -f1 || echo "unknown")
   echo "   - Size: $DB_SIZE"
   echo "   - Status: ✅ Ready"
 else
-  echo "   - Status: ⚠️ Not created yet (will be created on first access)"
+  echo "   - Status: ⚠️ Not created yet (will be created on first query)"
 fi
 echo ""
 

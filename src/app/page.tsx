@@ -4,12 +4,13 @@ import { Badge } from "@/components/ui/badge"
 import { ProductImage } from "@/components/ui/product-image"
 import { withDb, isDbEnabled } from "@/lib/db"
 import { prisma } from "@/lib/prisma"
+import { DbErrorType } from "@/lib/db-errors"
 
 // Force dynamic rendering - database required at runtime
 export const dynamic = 'force-dynamic'
 import { formatPrice, getRarityGlow, parseStats } from "@/lib/utils"
 import { getSiteSettings, DEFAULT_SITE_SETTINGS } from "@/lib/settings"
-import { DbOfflineBanner } from "@/components/db-offline-notice"
+import { DbOfflineBanner, EmptyState } from "@/components/db-offline-notice"
 import { 
   Sparkles, 
   Shield, 
@@ -31,7 +32,7 @@ import { Footer } from "@/components/layout/footer"
 async function getFeaturedProducts() {
   if (!isDbEnabled()) {
     console.log('[Home] Skipping getFeaturedProducts - DB disabled')
-    return { products: [], fromDb: false }
+    return { products: [], fromDb: false, errorType: 'CONNECTION' as DbErrorType }
   }
 
   const result = await withDb(
@@ -49,13 +50,13 @@ async function getFeaturedProducts() {
     [],
     'getFeaturedProducts'
   )
-  return { products: result.data, fromDb: result.fromDb }
+  return { products: result.data, fromDb: result.fromDb, errorType: result.errorType }
 }
 
 async function getCategories() {
   if (!isDbEnabled()) {
     console.log('[Home] Skipping getCategories - DB disabled')
-    return { categories: [], fromDb: false }
+    return { categories: [], fromDb: false, errorType: 'CONNECTION' as DbErrorType }
   }
 
   const result = await withDb(
@@ -70,7 +71,7 @@ async function getCategories() {
     [],
     'getCategories'
   )
-  return { categories: result.data, fromDb: result.fromDb }
+  return { categories: result.data, fromDb: result.fromDb, errorType: result.errorType }
 }
 
 const categoryIcons: Record<string, React.ReactNode> = {
@@ -90,13 +91,20 @@ export default async function HomePage() {
 
   const products = productsResult.products
   const categories = categoriesResult.categories
-  const dbOffline = !productsResult.fromDb && !categoriesResult.fromDb
+  
+  // Only show "DB offline" banner for actual connection errors
+  // Not for migration issues or empty data
+  const errorType = productsResult.errorType || categoriesResult.errorType
+  const showDbBanner = errorType === 'CONNECTION'
 
   return (
     <div className="min-h-screen bg-background">
-      {/* DB Offline Banner */}
-      {dbOffline && (
-        <DbOfflineBanner message="Database tidak terhubung. Konten tidak tersedia." />
+      {/* DB Connection Error Banner - only show for true connection failures */}
+      {showDbBanner && (
+        <DbOfflineBanner 
+          message="Database tidak dapat terhubung. Konten tidak tersedia." 
+          errorType={errorType}
+        />
       )}
 
       {/* Store Notice Banner */}
