@@ -250,11 +250,15 @@ model Order {
   total           Int
   currency        String   @default("IDR")
   
-  // Payment
+  // Payment - Enhanced fields for multi-provider support
+  // paymentMethod: "STRIPE" | "PAYPAL" | "BANK_TRANSFER" | "GATEWAY" | "MANUAL_TRANSFER"
   paymentMethod   String
-  gatewayProvider String?
-  gatewayReference String?
+  // paymentStatus: "PENDING" | "PROCESSING" | "PAID" | "FAILED" | "EXPIRED" | "REFUNDED"
+  paymentStatus   String   @default("PENDING")
+  gatewayProvider String?  // "STRIPE" | "PAYPAL" | "MIDTRANS"
+  gatewayReference String? // stripeSessionId, paypalOrderId, etc.
   gatewayData     String?  // JSON stored as string
+  paymentLastError String? // Last payment error message for debugging
   
   // Customer snapshot
   customerName    String
@@ -280,6 +284,8 @@ model Order {
   @@index([orderNumber])
   @@index([userId])
   @@index([status])
+  @@index([paymentStatus])
+  @@index([paymentMethod])
   @@index([createdAt])
 }
 

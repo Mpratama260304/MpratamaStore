@@ -39,8 +39,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
 
-    // Only allow change if not paid or canceled
-    if (order.status === "PAID" || order.status === "FULFILLED" || order.status === "CANCELED") {
+    // Only allow change if not paid, fulfilled, or canceled
+    const nonChangeableStatuses = ["PAID", "FULFILLED", "CANCELED", "REFUNDED"]
+    if (nonChangeableStatuses.includes(order.status) || order.paymentStatus === "PAID") {
       return NextResponse.json(
         { error: "Cannot change payment method for this order" },
         { status: 400 }
@@ -48,34 +49,38 @@ export async function POST(request: NextRequest) {
     }
 
     // Determine PaymentMethod and GatewayProvider
-    let paymentMethod: "MANUAL_TRANSFER" | "GATEWAY" = "MANUAL_TRANSFER"
+    let paymentMethod: string
     let gatewayProvider: string | null = null
 
     switch (newMethod) {
       case "stripe":
-        paymentMethod = "GATEWAY"
+        paymentMethod = "STRIPE"
         gatewayProvider = "STRIPE"
         break
       case "paypal":
-        paymentMethod = "GATEWAY"
+        paymentMethod = "PAYPAL"
         gatewayProvider = "PAYPAL"
         break
       case "bank_transfer":
-        paymentMethod = "MANUAL_TRANSFER"
+        paymentMethod = "BANK_TRANSFER"
         gatewayProvider = null
         break
+      default:
+        paymentMethod = "BANK_TRANSFER"
+        gatewayProvider = null
     }
 
-    // Update order - use explicit typing to avoid cache issues
+    // Update order
     const updatedOrder = await prisma.order.update({
       where: { id: orderId },
       data: {
         paymentMethod,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        gatewayProvider: gatewayProvider as any,
+        paymentStatus: "PENDING", // Reset payment status when changing method
+        gatewayProvider,
         // Clear old gateway data when switching methods
-        gatewayReference: gatewayProvider ? order.gatewayReference : null,
-        gatewayData: gatewayProvider ? (order.gatewayData ?? undefined) : undefined,
+        gatewayReference: null,
+        gatewayData: null,
+        paymentLastError: null, // Clear any previous errors
       },
     })
 
@@ -84,6 +89,7 @@ export async function POST(request: NextRequest) {
       order: {
         id: updatedOrder.id,
         paymentMethod: updatedOrder.paymentMethod,
+        paymentStatus: updatedOrder.paymentStatus,
         gatewayProvider: updatedOrder.gatewayProvider,
       },
     })

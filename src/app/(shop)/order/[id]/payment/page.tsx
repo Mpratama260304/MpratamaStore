@@ -24,6 +24,7 @@ import {
   Sparkles,
   CreditCard,
   RefreshCw,
+  XCircle,
 } from "lucide-react"
 
 interface Order {
@@ -32,7 +33,9 @@ interface Order {
   total: number
   currency: string
   status: string
-  paymentMethod: string
+  paymentMethod: string // "STRIPE" | "PAYPAL" | "BANK_TRANSFER" | etc.
+  paymentStatus?: string // "PENDING" | "PROCESSING" | "PAID" | "FAILED" | "EXPIRED"
+  paymentLastError?: string | null
   gatewayProvider?: string | null
   items: Array<{
     id: string
@@ -63,12 +66,23 @@ interface PaymentSettings {
   manualInstructions?: string
 }
 
+interface PaymentConfig {
+  stripeEnabled: boolean
+  paypalEnabled: boolean
+  bankTransferEnabled: boolean
+}
+
 export default function OrderPaymentPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { user, isLoading: authLoading } = useAuth()
   const [order, setOrder] = useState<Order | null>(null)
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null)
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({
+    stripeEnabled: false,
+    paypalEnabled: false,
+    bankTransferEnabled: true,
+  })
   const [isLoading, setIsLoading] = useState(true)
   const [isUploading, setIsUploading] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -77,9 +91,19 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
-  // Handle PayPal return messages
+  // Handle return messages from payment gateways
   useEffect(() => {
+    const stripeStatus = searchParams.get("stripe")
     const paypalStatus = searchParams.get("paypal")
+    
+    if (stripeStatus === "cancelled") {
+      toast({
+        title: "Payment Cancelled",
+        description: "You cancelled the Stripe payment. You can try again or choose another method.",
+        variant: "default",
+      })
+    }
+    
     if (paypalStatus === "cancelled") {
       toast({
         title: "Payment Cancelled",
@@ -104,25 +128,28 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [orderRes, settingsRes] = await Promise.all([
+        const [orderRes, settingsRes, configRes] = await Promise.all([
           fetch(`/api/orders/${params.id}`),
           fetch("/api/settings/payment"),
+          fetch("/api/settings/payment-methods"),
         ])
 
         if (orderRes.ok) {
           const { order } = await orderRes.json()
           setOrder(order)
-          // Set initial selected method based on order
-          if (order.paymentMethod === "GATEWAY" && order.gatewayProvider) {
-            setSelectedMethod(order.gatewayProvider.toLowerCase())
-          } else {
-            setSelectedMethod("bank_transfer")
-          }
+          // Set initial selected method based on order's current payment method
+          const method = getCurrentMethodFromOrder(order)
+          setSelectedMethod(method)
         }
 
         if (settingsRes.ok) {
           const { settings } = await settingsRes.json()
           setPaymentSettings(settings)
+        }
+        
+        if (configRes.ok) {
+          const config = await configRes.json()
+          setPaymentConfig(config)
         }
       } catch (error) {
         console.error("Failed to fetch data:", error)
@@ -134,13 +161,23 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
     fetchData()
   }, [params.id])
 
+  // Helper to determine current payment method from order
+  const getCurrentMethodFromOrder = (ord: Order): "stripe" | "paypal" | "bank_transfer" => {
+    const method = ord.paymentMethod?.toUpperCase()
+    if (method === "STRIPE") return "stripe"
+    if (method === "PAYPAL") return "paypal"
+    if (method === "BANK_TRANSFER" || method === "MANUAL_TRANSFER") return "bank_transfer"
+    // Fallback: check gatewayProvider
+    const gateway = ord.gatewayProvider?.toUpperCase()
+    if (gateway === "STRIPE") return "stripe"
+    if (gateway === "PAYPAL") return "paypal"
+    return "bank_transfer"
+  }
+
   // Determine current payment method display
   const getCurrentMethod = (): "stripe" | "paypal" | "bank_transfer" => {
-    if (order?.paymentMethod === "GATEWAY") {
-      if (order.gatewayProvider === "STRIPE") return "stripe"
-      if (order.gatewayProvider === "PAYPAL") return "paypal"
-    }
-    return "bank_transfer"
+    if (!order) return "bank_transfer"
+    return getCurrentMethodFromOrder(order)
   }
 
   // Change payment method
@@ -329,11 +366,30 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
       case "PAID":
         return <Badge variant="success"><CheckCircle className="mr-1 h-3 w-3" /> Paid</Badge>
       case "COMPLETED":
+      case "FULFILLED":
         return <Badge variant="success"><CheckCircle className="mr-1 h-3 w-3" /> Completed</Badge>
       case "CANCELLED":
+      case "CANCELED":
         return <Badge variant="destructive"><AlertCircle className="mr-1 h-3 w-3" /> Cancelled</Badge>
       default:
         return <Badge>{status}</Badge>
+    }
+  }
+
+  const getPaymentStatusBadge = (paymentStatus?: string) => {
+    switch (paymentStatus) {
+      case "PENDING":
+        return <Badge variant="outline"><Clock className="mr-1 h-3 w-3" /> Pending</Badge>
+      case "PROCESSING":
+        return <Badge variant="secondary"><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Processing</Badge>
+      case "PAID":
+        return <Badge variant="success"><CheckCircle className="mr-1 h-3 w-3" /> Paid</Badge>
+      case "FAILED":
+        return <Badge variant="destructive"><XCircle className="mr-1 h-3 w-3" /> Failed</Badge>
+      case "EXPIRED":
+        return <Badge variant="outline"><AlertCircle className="mr-1 h-3 w-3" /> Expired</Badge>
+      default:
+        return null
     }
   }
 
@@ -363,7 +419,10 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
   const hasSubmittedProof = order.paymentProofs && order.paymentProofs.length > 0
   const latestProof = order.paymentProofs?.[0]
   const currentMethod = getCurrentMethod()
-  const canChangeMethod = order.status === "PENDING_PAYMENT" || order.status === "CREATED"
+  const canChangeMethod = (order.status === "PENDING_PAYMENT" || order.status === "CREATED") &&
+                          order.paymentStatus !== "PAID"
+  const isPending = order.status === "PENDING_PAYMENT" || order.status === "CREATED"
+  const hasError = order.paymentLastError && order.paymentStatus === "FAILED"
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -384,6 +443,26 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
               <h1 className="text-2xl font-bold">Complete Payment</h1>
               {getStatusBadge(order.status)}
             </div>
+            
+            {/* Payment Status */}
+            {order.paymentStatus && order.paymentStatus !== "PENDING" && (
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm text-muted-foreground">Payment Status:</span>
+                {getPaymentStatusBadge(order.paymentStatus)}
+              </div>
+            )}
+
+            {/* Payment Error Message */}
+            {hasError && (
+              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2">
+                <XCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium text-red-400">Payment Failed</p>
+                  <p className="text-sm text-muted-foreground">{order.paymentLastError}</p>
+                  <p className="text-sm text-muted-foreground mt-1">You can try again or change to another payment method.</p>
+                </div>
+              </div>
+            )}
 
             {/* Current Payment Method Badge */}
             <div className="flex items-center gap-2 mb-4">
@@ -392,7 +471,8 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
                 {currentMethod === "stripe" && <CreditCard className="mr-1 h-3 w-3" />}
                 {currentMethod === "paypal" && "💳 "}
                 {currentMethod === "bank_transfer" && <Building2 className="mr-1 h-3 w-3" />}
-                {currentMethod.replace("_", " ")}
+                {currentMethod === "stripe" ? "Credit Card (Stripe)" :
+                 currentMethod === "paypal" ? "PayPal" : "Bank Transfer"}
               </Badge>
               {canChangeMethod && (
                 <Button
@@ -412,36 +492,42 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
                 <h3 className="font-semibold mb-3">Change Payment Method</h3>
                 <RadioGroup value={selectedMethod} onValueChange={setSelectedMethod}>
                   <div className="space-y-2">
-                    <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                      selectedMethod === "stripe" ? "border-blue-500 bg-blue-500/10" : "border-border hover:border-blue-500/50"
-                    }`}>
-                      <RadioGroupItem value="stripe" id="stripe" />
-                      <CreditCard className="h-4 w-4 text-blue-400" />
-                      <div>
-                        <p className="font-medium">Stripe</p>
-                        <p className="text-xs text-muted-foreground">Credit/Debit Card</p>
-                      </div>
-                    </label>
-                    <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                      selectedMethod === "paypal" ? "border-blue-500 bg-blue-500/10" : "border-border hover:border-blue-500/50"
-                    }`}>
-                      <RadioGroupItem value="paypal" id="paypal" />
-                      <span className="text-lg">💳</span>
-                      <div>
-                        <p className="font-medium">PayPal</p>
-                        <p className="text-xs text-muted-foreground">Pay with PayPal account</p>
-                      </div>
-                    </label>
-                    <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                      selectedMethod === "bank_transfer" ? "border-purple-500 bg-purple-500/10" : "border-border hover:border-purple-500/50"
-                    }`}>
-                      <RadioGroupItem value="bank_transfer" id="bank_transfer" />
-                      <Building2 className="h-4 w-4 text-purple-400" />
-                      <div>
-                        <p className="font-medium">Bank Transfer</p>
-                        <p className="text-xs text-muted-foreground">Manual transfer & upload proof</p>
-                      </div>
-                    </label>
+                    {paymentConfig.stripeEnabled && (
+                      <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedMethod === "stripe" ? "border-blue-500 bg-blue-500/10" : "border-border hover:border-blue-500/50"
+                      }`}>
+                        <RadioGroupItem value="stripe" id="stripe" />
+                        <CreditCard className="h-4 w-4 text-blue-400" />
+                        <div>
+                          <p className="font-medium">Credit Card (Stripe)</p>
+                          <p className="text-xs text-muted-foreground">Visa, Mastercard, etc.</p>
+                        </div>
+                      </label>
+                    )}
+                    {paymentConfig.paypalEnabled && (
+                      <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedMethod === "paypal" ? "border-yellow-500 bg-yellow-500/10" : "border-border hover:border-yellow-500/50"
+                      }`}>
+                        <RadioGroupItem value="paypal" id="paypal" />
+                        <span className="text-lg">💳</span>
+                        <div>
+                          <p className="font-medium">PayPal</p>
+                          <p className="text-xs text-muted-foreground">Pay with PayPal account</p>
+                        </div>
+                      </label>
+                    )}
+                    {paymentConfig.bankTransferEnabled && (
+                      <label className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedMethod === "bank_transfer" ? "border-purple-500 bg-purple-500/10" : "border-border hover:border-purple-500/50"
+                      }`}>
+                        <RadioGroupItem value="bank_transfer" id="bank_transfer" />
+                        <Building2 className="h-4 w-4 text-purple-400" />
+                        <div>
+                          <p className="font-medium">Bank Transfer</p>
+                          <p className="text-xs text-muted-foreground">Manual transfer & upload proof</p>
+                        </div>
+                      </label>
+                    )}
                   </div>
                 </RadioGroup>
                 <div className="flex gap-2 mt-4">
@@ -478,7 +564,7 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
             </div>
 
             {/* STRIPE PAYMENT SECTION */}
-            {currentMethod === "stripe" && order.status === "PENDING_PAYMENT" && (
+            {currentMethod === "stripe" && isPending && (
               <div className="space-y-4">
                 <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                   <h3 className="font-semibold flex items-center gap-2 mb-2">
@@ -510,7 +596,7 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
             )}
 
             {/* PAYPAL PAYMENT SECTION */}
-            {currentMethod === "paypal" && order.status === "PENDING_PAYMENT" && (
+            {currentMethod === "paypal" && isPending && (
               <div className="space-y-4">
                 <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
                   <h3 className="font-semibold flex items-center gap-2 mb-2">
@@ -603,7 +689,7 @@ export default function OrderPaymentPage({ params }: { params: { id: string } })
           </div>
 
           {/* Upload Proof - Only for Bank Transfer */}
-          {currentMethod === "bank_transfer" && order.status === "PENDING_PAYMENT" && (
+          {currentMethod === "bank_transfer" && isPending && (
             <div className="bg-card border rounded-xl p-6">
               <h2 className="text-xl font-bold mb-4">Upload Payment Proof</h2>
               <p className="text-sm text-muted-foreground mb-4">

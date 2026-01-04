@@ -1,6 +1,7 @@
 import { Metadata } from "next"
 import { notFound } from "next/navigation"
 import { prisma } from "@/lib/prisma"
+import { getBaseUrl } from "@/lib/base-url"
 
 // Force dynamic rendering - database required at runtime
 export const dynamic = 'force-dynamic'
@@ -48,7 +49,8 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
     }
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
+  // Note: generateMetadata doesn't have access to request headers
+  const siteUrl = getBaseUrl()
 
   return {
     title: product.seoTitle || product.name,

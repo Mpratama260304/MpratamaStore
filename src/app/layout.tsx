@@ -4,6 +4,7 @@ import "./globals.css"
 import { Toaster } from "@/components/ui/toaster"
 import { Providers } from "@/components/providers"
 import { getSiteSettings, getSeoSettings } from "@/lib/settings"
+import { getBaseUrl } from "@/lib/base-url"
 
 // Force dynamic rendering - metadata requires database at runtime
 export const dynamic = 'force-dynamic'
@@ -16,7 +17,9 @@ export async function generateMetadata(): Promise<Metadata> {
     getSeoSettings(),
   ])
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
+  // Note: generateMetadata doesn't have access to request headers
+  // so it uses env-based or fallback URL for metadataBase
+  const siteUrl = getBaseUrl()
 
   return {
     title: {

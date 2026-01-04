@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/auth"
+import { getBaseUrl } from "@/lib/base-url"
 
 // PayPal API base URLs
 const PAYPAL_BASE_URL = process.env.PAYPAL_ENV === "live" 
@@ -75,10 +76,8 @@ export async function POST(request: NextRequest) {
     // Get PayPal access token
     const accessToken = await getPayPalAccessToken()
 
-    // Build base URL for return/cancel
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-      request.headers.get("origin") || 
-      "http://localhost:3000"
+    // Build base URL for return/cancel - auto-detect from request headers
+    const baseUrl = getBaseUrl(request.headers)
 
     // Convert IDR to USD for PayPal (PayPal doesn't support IDR directly in many regions)
     // Using approximate rate: 1 USD = 15,500 IDR

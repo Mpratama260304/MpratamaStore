@@ -1,7 +1,10 @@
 import { MetadataRoute } from "next"
+import { getBaseUrl } from "@/lib/base-url"
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://mpratamastore.vercel.app"
+  // Note: robots.ts doesn't have access to request headers
+  // so it uses env-based or fallback URL
+  const baseUrl = getBaseUrl()
 
   return {
     rules: [

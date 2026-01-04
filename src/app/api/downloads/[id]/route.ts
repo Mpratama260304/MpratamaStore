@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/auth"
 import { createAuditLog } from "@/lib/audit"
 import { createHmac } from "crypto"
+import { getBaseUrl } from "@/lib/base-url"
 
 // Generate a signed URL that expires after a certain time
 function generateSignedUrl(
   assetId: string,
   userId: string,
   orderId: string,
+  headers?: Headers,
   expiresIn: number = 24 * 60 * 60 * 1000 // 24 hours
 ): string {
   const expires = Date.now() + expiresIn
@@ -17,7 +19,7 @@ function generateSignedUrl(
     .update(data)
     .digest("hex")
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+  const baseUrl = getBaseUrl(headers)
   const params = new URLSearchParams({
     asset: assetId,
     user: userId,
@@ -82,8 +84,8 @@ export async function GET(
       )
     }
 
-    // Generate signed download URL
-    const downloadUrl = generateSignedUrl(params.id, session.user.id, orderId)
+    // Generate signed download URL with base URL from request
+    const downloadUrl = generateSignedUrl(params.id, session.user.id, orderId, request.headers)
 
     // Log the download request
     await createAuditLog({

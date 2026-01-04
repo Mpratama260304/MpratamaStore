@@ -1,11 +1,14 @@
 import { MetadataRoute } from "next"
 import { prisma } from "@/lib/prisma"
+import { getBaseUrl } from "@/lib/base-url"
 
 // Force dynamic rendering - database required at runtime
 export const dynamic = 'force-dynamic'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://mpratamastore.vercel.app"
+  // Note: sitemap.ts doesn't have access to request headers
+  // so it uses env-based or fallback URL
+  const baseUrl = getBaseUrl()
 
   // Static pages
   const staticPages: MetadataRoute.Sitemap = [

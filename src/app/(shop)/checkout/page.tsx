@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -22,15 +22,30 @@ import {
   Shield,
   Sparkles,
   ArrowLeft,
+  AlertCircle,
 } from "lucide-react"
+
+// Payment method types
+type PaymentMethodType = "stripe" | "paypal" | "bank_transfer" | ""
+
+// Check if payment methods are configured (via environment)
+interface PaymentConfig {
+  stripeEnabled: boolean
+  paypalEnabled: boolean
+  bankTransferEnabled: boolean
+}
 
 export default function CheckoutPage() {
   const router = useRouter()
   const { user, isLoading: authLoading } = useAuth()
   const { items, total, clearCart } = useCart()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState("manual")
-  const [gatewayProvider, setGatewayProvider] = useState<"midtrans" | "stripe">("stripe")
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("") // Default: none selected
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({
+    stripeEnabled: false,
+    paypalEnabled: false,
+    bankTransferEnabled: true, // Bank transfer always available
+  })
   const [formData, setFormData] = useState({
     email: "",
     name: "",
@@ -38,6 +53,23 @@ export default function CheckoutPage() {
     notes: "",
     agreeTerms: false,
   })
+
+  // Fetch payment configuration
+  useEffect(() => {
+    const fetchPaymentConfig = async () => {
+      try {
+        const res = await fetch("/api/settings/payment-methods")
+        if (res.ok) {
+          const data = await res.json()
+          setPaymentConfig(data)
+        }
+      } catch {
+        // Default config if fetch fails
+        console.log("Using default payment config")
+      }
+    }
+    fetchPaymentConfig()
+  }, [])
 
   // Redirect if not logged in
   if (!authLoading && !user) {
@@ -63,9 +95,23 @@ export default function CheckoutPage() {
       return
     }
 
+    if (!paymentMethod) {
+      toast({
+        title: "Payment Method Required",
+        description: "Please select a payment method to continue.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
+      // Map payment method to API format
+      const apiPaymentMethod = paymentMethod === "bank_transfer" ? "manual" : "gateway"
+      const gatewayProvider = paymentMethod === "stripe" ? "stripe" : 
+                              paymentMethod === "paypal" ? "paypal" : undefined
+
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -74,8 +120,8 @@ export default function CheckoutPage() {
             productId: item.productId,
             quantity: item.quantity,
           })),
-          paymentMethod,
-          gatewayProvider: paymentMethod === "gateway" ? gatewayProvider : undefined,
+          paymentMethod: apiPaymentMethod,
+          gatewayProvider,
           customerEmail: formData.email || user?.email,
           customerName: formData.name || user?.username,
           customerPhone: formData.phone,
@@ -91,42 +137,64 @@ export default function CheckoutPage() {
 
       clearCart()
       
-      if (paymentMethod === "manual") {
+      // Handle different payment methods
+      if (paymentMethod === "bank_transfer") {
+        // Bank transfer: go to payment page with bank details
         router.push(`/order/${data.order.id}/payment`)
-      } else if (paymentMethod === "gateway") {
-        // Handle payment gateway based on provider
-        if (gatewayProvider === "stripe") {
-          // Create Stripe checkout session
-          try {
-            const stripeRes = await fetch("/api/payments/stripe/checkout", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ orderId: data.order.id }),
-            })
-            const stripeData = await stripeRes.json()
-            
-            if (!stripeRes.ok) {
-              throw new Error(stripeData.error || "Failed to create Stripe session")
-            }
-            
-            if (stripeData.url) {
-              window.location.href = stripeData.url
-              return
-            }
-          } catch (stripeError) {
-            toast({
-              title: "Payment Error",
-              description: stripeError instanceof Error ? stripeError.message : "Failed to start payment",
-              variant: "destructive",
-            })
-            router.push(`/order/${data.order.id}/payment`)
+      } else if (paymentMethod === "stripe") {
+        // Stripe: create checkout session and redirect
+        try {
+          const stripeRes = await fetch("/api/payments/stripe/checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderId: data.order.id }),
+          })
+          const stripeData = await stripeRes.json()
+          
+          if (!stripeRes.ok) {
+            throw new Error(stripeData.error || "Failed to create Stripe session")
+          }
+          
+          if (stripeData.url) {
+            window.location.href = stripeData.url
             return
           }
-        } else if (data.paymentUrl) {
-          // Midtrans or other gateway
-          window.location.href = data.paymentUrl
-        } else {
-          router.push(`/order/${data.order.id}`)
+        } catch (stripeError) {
+          toast({
+            title: "Stripe Error",
+            description: stripeError instanceof Error ? stripeError.message : "Failed to start payment",
+            variant: "destructive",
+          })
+          // Redirect to payment page where they can try again or change method
+          router.push(`/order/${data.order.id}/payment`)
+          return
+        }
+      } else if (paymentMethod === "paypal") {
+        // PayPal: create order and redirect
+        try {
+          const paypalRes = await fetch("/api/payments/paypal/create-order", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderId: data.order.id }),
+          })
+          const paypalData = await paypalRes.json()
+          
+          if (!paypalRes.ok) {
+            throw new Error(paypalData.error || "Failed to create PayPal order")
+          }
+          
+          if (paypalData.approvalUrl) {
+            window.location.href = paypalData.approvalUrl
+            return
+          }
+        } catch (paypalError) {
+          toast({
+            title: "PayPal Error",
+            description: paypalError instanceof Error ? paypalError.message : "Failed to start payment",
+            variant: "destructive",
+          })
+          router.push(`/order/${data.order.id}/payment`)
+          return
         }
       }
     } catch (error) {
@@ -147,6 +215,11 @@ export default function CheckoutPage() {
       </div>
     )
   }
+
+  // Check if any payment method is available
+  const hasAnyPaymentMethod = paymentConfig.stripeEnabled || 
+                               paymentConfig.paypalEnabled || 
+                               paymentConfig.bankTransferEnabled
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -209,87 +282,92 @@ export default function CheckoutPage() {
             {/* Payment Method */}
             <div className="bg-card border rounded-xl p-6">
               <h2 className="text-xl font-bold mb-4">Payment Method</h2>
-              <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
-                <div className="space-y-3">
-                  <label
-                    className={`flex items-center gap-4 p-4 border rounded-lg cursor-pointer transition-colors ${
-                      paymentMethod === "manual"
-                        ? "border-purple-500 bg-purple-500/10"
-                        : "border-border hover:border-purple-500/50"
-                    }`}
-                  >
-                    <RadioGroupItem value="manual" id="manual" />
-                    <Building2 className="h-5 w-5 text-purple-400" />
-                    <div className="flex-1">
-                      <p className="font-semibold">Manual Bank Transfer</p>
-                      <p className="text-sm text-muted-foreground">
-                        Transfer to our bank account and upload proof
-                      </p>
-                    </div>
-                  </label>
-                  
-                  <label
-                    className={`flex items-center gap-4 p-4 border rounded-lg cursor-pointer transition-colors ${
-                      paymentMethod === "gateway"
-                        ? "border-purple-500 bg-purple-500/10"
-                        : "border-border hover:border-purple-500/50"
-                    }`}
-                  >
-                    <RadioGroupItem value="gateway" id="gateway" />
-                    <CreditCard className="h-5 w-5 text-blue-400" />
-                    <div className="flex-1">
-                      <p className="font-semibold">Payment Gateway</p>
-                      <p className="text-sm text-muted-foreground">
-                        Pay instantly with credit card, e-wallet, or virtual account
-                      </p>
-                    </div>
-                  </label>
+              
+              {!hasAnyPaymentMethod ? (
+                <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-yellow-400">No Payment Methods Available</p>
+                    <p className="text-sm text-muted-foreground">
+                      Please contact support to enable payment methods.
+                    </p>
+                  </div>
                 </div>
-              </RadioGroup>
-
-              {/* Gateway Provider Selection */}
-              {paymentMethod === "gateway" && (
-                <div className="mt-4 pl-4 border-l-2 border-purple-500/30">
-                  <p className="text-sm font-medium mb-3 text-muted-foreground">Select payment provider:</p>
-                  <RadioGroup 
-                    value={gatewayProvider} 
-                    onValueChange={(v) => setGatewayProvider(v as "midtrans" | "stripe")}
-                  >
-                    <div className="space-y-2">
+              ) : (
+                <RadioGroup value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as PaymentMethodType)}>
+                  <div className="space-y-3">
+                    {/* Stripe Option */}
+                    {paymentConfig.stripeEnabled && (
                       <label
-                        className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                          gatewayProvider === "stripe"
+                        className={`flex items-center gap-4 p-4 border rounded-lg cursor-pointer transition-colors ${
+                          paymentMethod === "stripe"
                             ? "border-blue-500 bg-blue-500/10"
                             : "border-border hover:border-blue-500/50"
                         }`}
                       >
                         <RadioGroupItem value="stripe" id="stripe" />
+                        <CreditCard className="h-5 w-5 text-blue-400" />
                         <div className="flex-1">
-                          <p className="font-medium">Stripe</p>
-                          <p className="text-xs text-muted-foreground">
-                            Credit/Debit Card (Visa, Mastercard, etc.)
+                          <p className="font-semibold">Credit/Debit Card</p>
+                          <p className="text-sm text-muted-foreground">
+                            Pay securely with Visa, Mastercard, or other cards via Stripe
                           </p>
                         </div>
+                        <Badge variant="secondary" className="text-xs">Instant</Badge>
                       </label>
+                    )}
+                    
+                    {/* PayPal Option */}
+                    {paymentConfig.paypalEnabled && (
                       <label
-                        className={`flex items-center gap-3 p-3 border rounded-lg cursor-not-allowed opacity-50 ${
-                          gatewayProvider === "midtrans"
-                            ? "border-green-500 bg-green-500/10"
-                            : "border-border"
+                        className={`flex items-center gap-4 p-4 border rounded-lg cursor-pointer transition-colors ${
+                          paymentMethod === "paypal"
+                            ? "border-yellow-500 bg-yellow-500/10"
+                            : "border-border hover:border-yellow-500/50"
                         }`}
                       >
-                        <RadioGroupItem value="midtrans" id="midtrans" disabled />
+                        <RadioGroupItem value="paypal" id="paypal" />
+                        <span className="text-xl">💳</span>
                         <div className="flex-1">
-                          <p className="font-medium">Midtrans</p>
-                          <p className="text-xs text-muted-foreground">
-                            GoPay, OVO, Bank Transfer VA
+                          <p className="font-semibold">PayPal</p>
+                          <p className="text-sm text-muted-foreground">
+                            Pay with your PayPal account (amount converted to USD)
                           </p>
                         </div>
-                        <Badge variant="secondary" className="text-xs">Soon</Badge>
+                        <Badge variant="secondary" className="text-xs">Instant</Badge>
                       </label>
-                    </div>
-                  </RadioGroup>
-                </div>
+                    )}
+                    
+                    {/* Bank Transfer Option */}
+                    {paymentConfig.bankTransferEnabled && (
+                      <label
+                        className={`flex items-center gap-4 p-4 border rounded-lg cursor-pointer transition-colors ${
+                          paymentMethod === "bank_transfer"
+                            ? "border-purple-500 bg-purple-500/10"
+                            : "border-border hover:border-purple-500/50"
+                        }`}
+                      >
+                        <RadioGroupItem value="bank_transfer" id="bank_transfer" />
+                        <Building2 className="h-5 w-5 text-purple-400" />
+                        <div className="flex-1">
+                          <p className="font-semibold">Bank Transfer</p>
+                          <p className="text-sm text-muted-foreground">
+                            Transfer to our bank account and upload payment proof
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-xs">Manual</Badge>
+                      </label>
+                    )}
+                  </div>
+                </RadioGroup>
+              )}
+              
+              {/* No method selected warning */}
+              {hasAnyPaymentMethod && !paymentMethod && (
+                <p className="text-sm text-yellow-400 mt-3 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  Please select a payment method to continue
+                </p>
               )}
             </div>
 
@@ -386,7 +464,7 @@ export default function CheckoutPage() {
                 variant="legendary"
                 size="lg"
                 className="w-full"
-                disabled={isSubmitting || !formData.agreeTerms}
+                disabled={isSubmitting || !formData.agreeTerms || !paymentMethod}
               >
                 {isSubmitting ? (
                   <>
@@ -396,7 +474,10 @@ export default function CheckoutPage() {
                 ) : (
                   <>
                     <Sparkles className="mr-2 h-5 w-5" />
-                    Place Order
+                    {paymentMethod === "stripe" ? "Pay with Card" :
+                     paymentMethod === "paypal" ? "Pay with PayPal" :
+                     paymentMethod === "bank_transfer" ? "Proceed to Bank Transfer" :
+                     "Select Payment Method"}
                   </>
                 )}
               </Button>

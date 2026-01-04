@@ -6,6 +6,7 @@ import { hashPassword, verifyPassword, createSession, destroySession, checkRateL
 import { createAuditLog } from "@/lib/audit"
 import { redirect } from "next/navigation"
 import { v4 as uuidv4 } from "uuid"
+import { getBaseUrl } from "@/lib/base-url"
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -197,7 +198,8 @@ export async function forgotPassword(formData: FormData): Promise<ActionResult> 
   // TODO: Send email with reset link
   // For now, just log the token in development
   if (process.env.NODE_ENV === "development") {
-    console.log(`Password reset link: ${process.env.NEXT_PUBLIC_SITE_URL}/reset-password?token=${token}`)
+    const baseUrl = getBaseUrl()
+    console.log(`Password reset link: ${baseUrl}/reset-password?token=${token}`)
   }
 
   return { success: true }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import Stripe from "stripe"
 import { prisma } from "@/lib/prisma"
 import { requireAuth } from "@/lib/auth"
+import { getBaseUrl } from "@/lib/base-url"
 
 // Zero-decimal currencies for Stripe (amount is in whole units, not cents)
 // IMPORTANT: As of API version 2025-12-15, IDR is NOT zero-decimal!
@@ -12,6 +13,24 @@ const ZERO_DECIMAL_CURRENCIES = [
   'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf'
   // NOTE: 'idr' is NOT zero-decimal in current Stripe API!
 ]
+
+// Minimum amounts for Stripe (in base currency units)
+const STRIPE_MINIMUM_AMOUNTS: Record<string, number> = {
+  idr: 7000, // Rp 7,000 minimum
+  usd: 0.50, // $0.50 minimum
+  eur: 0.50, // €0.50 minimum
+}
+
+/**
+ * Check if Stripe is properly configured
+ */
+function isStripeConfigured(): { configured: boolean; error?: string } {
+  const secretKey = process.env.STRIPE_SECRET_KEY
+  if (!secretKey || secretKey.trim() === '') {
+    return { configured: false, error: "Stripe secret key not configured" }
+  }
+  return { configured: true }
+}
 
 /**
  * Convert amount to Stripe unit_amount (always returns integer number)
@@ -49,6 +68,18 @@ function ensureInteger(value: unknown, fieldName: string): number {
 
 export async function POST(request: NextRequest) {
   try {
+    // Check Stripe configuration first
+    const stripeCheck = isStripeConfigured()
+    if (!stripeCheck.configured) {
+      return NextResponse.json(
+        { 
+          error: "Stripe payment is not available. Please use bank transfer or PayPal.",
+          code: "STRIPE_NOT_CONFIGURED"
+        },
+        { status: 503 }
+      )
+    }
+    
     const session = await requireAuth()
     
     const body = await request.json()
@@ -56,16 +87,6 @@ export async function POST(request: NextRequest) {
 
     if (!orderId) {
       return NextResponse.json({ error: "Order ID is required" }, { status: 400 })
-    }
-
-    // Get payment settings
-    const paymentSettings = await prisma.paymentSetting.findFirst()
-    
-    if (!paymentSettings?.stripeSecretKey) {
-      return NextResponse.json(
-        { error: "Stripe is not configured" },
-        { status: 500 }
-      )
     }
 
     // Get order with items
@@ -101,18 +122,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Initialize Stripe
-    const stripe = new Stripe(paymentSettings.stripeSecretKey, {
-      apiVersion: "2025-12-15.clover",
-    })
+    // Initialize Stripe with env variable
+    // Using type assertion to avoid version mismatch in different environments
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!) as Stripe
 
-    // Build base URL - use env var, NOT localhost in production
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-      request.headers.get("origin") || 
-      "http://localhost:3000"
+    // Build base URL - auto-detect from request headers for dynamic domains (PhalaCloud etc.)
+    const baseUrl = getBaseUrl(request.headers)
+    console.log("[STRIPE] Base URL detected:", baseUrl)
     
     // Normalize currency
     const currency = order.currency.toLowerCase()
+    
+    // Check minimum amount
+    const minAmount = STRIPE_MINIMUM_AMOUNTS[currency] || 0.50
+    if (order.total < minAmount) {
+      const formattedMin = currency === 'idr' 
+        ? `Rp ${minAmount.toLocaleString()}`
+        : `${currency.toUpperCase()} ${minAmount}`
+      return NextResponse.json(
+        { 
+          error: `Minimum order amount for Stripe is ${formattedMin}. Please use bank transfer for smaller amounts.`,
+          code: "AMOUNT_TOO_SMALL"
+        },
+        { status: 400 }
+      )
+    }
 
     // ══════════════════════════════════════════════════════════════
     // BUILD LINE ITEMS WITH STRICT TYPE ENFORCEMENT
@@ -255,18 +289,21 @@ export async function POST(request: NextRequest) {
         userId: session.user.id,
       },
       success_url: `${baseUrl}/order/success?session_id={CHECKOUT_SESSION_ID}&order_id=${order.id}`,
-      cancel_url: `${baseUrl}/order/cancel?order_id=${order.id}`,
+      cancel_url: `${baseUrl}/order/${order.id}/payment?stripe=cancelled`,
     })
 
     console.log("[STRIPE] Checkout session created successfully!")
     console.log("  Session ID:", checkoutSession.id)
     console.log("  Amount Total:", checkoutSession.amount_total)
     console.log("  Currency:", checkoutSession.currency)
+    console.log("  Success URL:", `${baseUrl}/order/success?session_id={CHECKOUT_SESSION_ID}&order_id=${order.id}`)
 
-    // Update order with Stripe session info
+    // Update order with Stripe session info and payment status
     await prisma.order.update({
       where: { id: order.id },
       data: {
+        paymentMethod: "STRIPE",
+        paymentStatus: "PROCESSING",
         gatewayProvider: "STRIPE",
         gatewayReference: checkoutSession.id,
         gatewayData: JSON.stringify({
@@ -274,7 +311,10 @@ export async function POST(request: NextRequest) {
           paymentIntentId: typeof checkoutSession.payment_intent === "string" 
             ? checkoutSession.payment_intent 
             : checkoutSession.payment_intent?.id || null,
+          checkoutUrl: checkoutSession.url,
+          createdAt: new Date().toISOString(),
         }),
+        paymentLastError: null, // Clear any previous errors
       },
     })
 

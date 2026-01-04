@@ -4,14 +4,15 @@
 # ============================================
 # USAGE:
 #   1. Copy this entire file to PhalaCloud compose editor
-#   2. Fill in ALL env vars via PhalaCloud Environment Variables UI
-#   3. Deploy
+#   2. Fill in AUTH_SECRET, JWT_SECRET, ADMIN credentials via PhalaCloud Environment Variables UI
+#   3. Deploy - URL akan otomatis terdeteksi dari domain!
 #
 # KEY FEATURES:
 #   - 100% Internal SQLite database (no external DB connection needed!)
 #   - Auto migration & seed on startup
 #   - Persistent data via volume mount
 #   - Single container deployment
+#   - AUTO-DETECT domain dari request headers (tidak perlu set URL!)
 # ============================================
 
 version: "3.9"
@@ -44,12 +45,13 @@ services:
       DATABASE_URL: "file:/data/app.db"
       
       # ══════════════════════════════════════════════════════════════
-      # APP URLs [WAJIB ISI DI PHALA UI]
-      # Ganti dengan domain PhalaCloud Anda
+      # APP URLs [OPSIONAL - Auto-detect dari request headers!]
+      # Biarkan kosong agar app otomatis mendeteksi domain
+      # Jika ingin override, isi via PhalaCloud Environment Variables
       # ══════════════════════════════════════════════════════════════
-      NEXT_PUBLIC_APP_URL: ""
-      NEXT_PUBLIC_SITE_URL: ""
-      NEXT_PUBLIC_BASE_URL: ""
+      # NEXT_PUBLIC_APP_URL: ""
+      # NEXT_PUBLIC_SITE_URL: ""
+      # NEXT_PUBLIC_BASE_URL: ""
       
       # ══════════════════════════════════════════════════════════════
       # AUTHENTICATION SECRETS [WAJIB ISI DI PHALA UI]

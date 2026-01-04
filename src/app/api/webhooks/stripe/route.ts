@@ -5,22 +5,36 @@ import { prisma } from "@/lib/prisma"
 // Disable body parsing - we need raw body for signature verification
 export const dynamic = "force-dynamic"
 
+/**
+ * Check if Stripe webhook is configured
+ */
+function isWebhookConfigured(): { configured: boolean; error?: string } {
+  const secretKey = process.env.STRIPE_SECRET_KEY
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  
+  if (!secretKey || secretKey.trim() === '') {
+    return { configured: false, error: "Stripe secret key not configured" }
+  }
+  if (!webhookSecret || webhookSecret.trim() === '') {
+    return { configured: false, error: "Stripe webhook secret not configured" }
+  }
+  return { configured: true }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // Get payment settings
-    const paymentSettings = await prisma.paymentSetting.findFirst()
-    
-    if (!paymentSettings?.stripeSecretKey || !paymentSettings?.stripeWebhookSecret) {
-      console.error("Stripe webhook: Missing configuration")
+    // Check if Stripe webhook is configured
+    const configCheck = isWebhookConfigured()
+    if (!configCheck.configured) {
+      console.warn("[STRIPE WEBHOOK] Not configured:", configCheck.error)
       return NextResponse.json(
-        { error: "Stripe is not configured" },
-        { status: 500 }
+        { error: "Stripe webhook not configured", details: configCheck.error },
+        { status: 501 }
       )
     }
 
-    const stripe = new Stripe(paymentSettings.stripeSecretKey, {
-      apiVersion: "2025-12-15.clover",
-    })
+    // Using type assertion to avoid version mismatch in different environments
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!) as Stripe
 
     // Get raw body and signature
     const body = await request.text()
@@ -40,7 +54,7 @@ export async function POST(request: NextRequest) {
       event = stripe.webhooks.constructEvent(
         body,
         signature,
-        paymentSettings.stripeWebhookSecret
+        process.env.STRIPE_WEBHOOK_SECRET!
       )
     } catch (err) {
       console.error("Stripe webhook signature verification failed:", err)
@@ -96,7 +110,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   // Check if already processed (idempotency)
   const existingOrder = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { status: true, gatewayData: true },
+    select: { status: true, paymentStatus: true, gatewayData: true },
   })
 
   if (!existingOrder) {
@@ -105,7 +119,8 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   // Check if already paid (idempotent)
-  if (existingOrder.status === "PAID" || existingOrder.status === "FULFILLED") {
+  if (existingOrder.status === "PAID" || existingOrder.status === "FULFILLED" || 
+      existingOrder.paymentStatus === "PAID") {
     console.log(`Stripe webhook: Order ${orderId} already processed`)
     return
   }
@@ -125,7 +140,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     where: { id: orderId },
     data: {
       status: "PAID",
+      paymentStatus: "PAID",
       paidAt: new Date(),
+      paymentLastError: null, // Clear any errors
       gatewayData: JSON.stringify({
         ...existingData,
         sessionId: session.id,
@@ -154,26 +171,30 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
   // Only update if still pending
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { status: true },
+    select: { status: true, paymentStatus: true },
   })
 
-  if (order && (order.status === "PENDING_PAYMENT" || order.status === "CREATED")) {
+  if (order && (order.status === "PENDING_PAYMENT" || order.status === "CREATED" ||
+      order.paymentStatus === "PENDING" || order.paymentStatus === "PROCESSING")) {
     await prisma.order.update({
       where: { id: orderId },
       data: {
-        status: "CANCELED",
+        status: "PENDING_PAYMENT", // Keep pending so user can retry
+        paymentStatus: "EXPIRED",
+        paymentLastError: "Payment session expired. Please try again.",
         gatewayData: JSON.stringify({
           sessionId: session.id,
           expiredAt: new Date().toISOString(),
         }),
       },
     })
-    console.log(`Stripe webhook: Order ${orderId} expired/canceled`)
+    console.log(`Stripe webhook: Order ${orderId} payment session expired`)
   }
 }
 
 async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
   const orderId = paymentIntent.metadata?.orderId
+  const errorMessage = paymentIntent.last_payment_error?.message || "Payment failed"
 
   if (!orderId) {
     // Try to find order by payment intent
@@ -181,7 +202,7 @@ async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
       where: {
         gatewayReference: paymentIntent.id,
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, paymentStatus: true },
     })
 
     if (!order) {
@@ -189,18 +210,47 @@ async function handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
       return
     }
 
-    if (order.status === "PENDING_PAYMENT" || order.status === "CREATED") {
+    if (order.status === "PENDING_PAYMENT" || order.status === "CREATED" ||
+        order.paymentStatus === "PENDING" || order.paymentStatus === "PROCESSING") {
       await prisma.order.update({
         where: { id: order.id },
         data: {
+          paymentStatus: "FAILED",
+          paymentLastError: errorMessage,
           gatewayData: JSON.stringify({
             paymentIntentId: paymentIntent.id,
             failedAt: new Date().toISOString(),
-            lastError: paymentIntent.last_payment_error?.message,
+            lastError: errorMessage,
+            errorCode: paymentIntent.last_payment_error?.code,
           }),
         },
       })
-      console.log(`Stripe webhook: Payment failed for order ${order.id}`)
+      console.log(`Stripe webhook: Payment failed for order ${order.id}: ${errorMessage}`)
     }
+    return
+  }
+
+  // If we have orderId in metadata
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { status: true, paymentStatus: true },
+  })
+
+  if (order && (order.status === "PENDING_PAYMENT" || order.status === "CREATED" ||
+      order.paymentStatus === "PENDING" || order.paymentStatus === "PROCESSING")) {
+    await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        paymentStatus: "FAILED",
+        paymentLastError: errorMessage,
+        gatewayData: JSON.stringify({
+          paymentIntentId: paymentIntent.id,
+          failedAt: new Date().toISOString(),
+          lastError: errorMessage,
+          errorCode: paymentIntent.last_payment_error?.code,
+        }),
+      },
+    })
+    console.log(`Stripe webhook: Payment failed for order ${orderId}: ${errorMessage}`)
   }
 }

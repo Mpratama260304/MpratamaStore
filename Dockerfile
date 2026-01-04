@@ -79,8 +79,10 @@ COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Copy dependencies needed for seed script
 COPY --from=builder /app/node_modules/argon2 ./node_modules/argon2
-COPY --from=builder /app/node_modules/tsx ./node_modules/tsx 2>/dev/null || true
 COPY --from=builder /app/package.json ./package.json
+
+# Copy tsx if available (for seed script)
+RUN if [ -d /app/node_modules/tsx ]; then cp -r /app/node_modules/tsx ./node_modules/tsx; fi || true
 
 # Switch to non-root user
 USER nextjs

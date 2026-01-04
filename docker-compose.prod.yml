@@ -1,5 +1,6 @@
 # Production Docker Compose for MpratamaStore
 # Usage: docker-compose -f docker-compose.prod.yml up -d
+# Note: URLs are auto-detected from request headers, NEXT_PUBLIC_APP_URL is optional
 
 services:
   postgres:
@@ -31,7 +32,8 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-mpratama_store}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
-      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      # NEXT_PUBLIC_APP_URL is optional - auto-detected from request headers if not set
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}

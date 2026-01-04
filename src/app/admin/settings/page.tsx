@@ -9,7 +9,8 @@ import { Switch } from "@/components/ui/switch"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/use-toast"
-import { Loader2, Save, Settings, CreditCard, Globe } from "lucide-react"
+import { Loader2, Save, Settings, CreditCard, Globe, Copy, Check, Info } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface SiteSettings {
   id?: string
@@ -37,9 +38,21 @@ interface PaymentSettings {
   stripeWebhookSecret: string
 }
 
+interface DetectedUrls {
+  baseUrl: string
+  webhookUrls: {
+    stripe: string
+    paypal: string
+  }
+  isAutoDetected: boolean
+  message: string
+}
+
 export default function AdminSettingsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
+  const [detectedUrls, setDetectedUrls] = useState<DetectedUrls | null>(null)
   const [siteSettings, setSiteSettings] = useState<SiteSettings>({
     siteName: "MpratamaStore",
     siteDescription: "Digital artifacts marketplace",
@@ -66,9 +79,10 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const [siteRes, paymentRes] = await Promise.all([
+        const [siteRes, paymentRes, urlsRes] = await Promise.all([
           fetch("/api/admin/settings/site"),
           fetch("/api/admin/settings/payment"),
+          fetch("/api/admin/settings/urls"),
         ])
 
         if (siteRes.ok) {
@@ -79,6 +93,11 @@ export default function AdminSettingsPage() {
         if (paymentRes.ok) {
           const { settings } = await paymentRes.json()
           if (settings) setPaymentSettings(settings)
+        }
+
+        if (urlsRes.ok) {
+          const data = await urlsRes.json()
+          setDetectedUrls(data)
         }
       } catch (error) {
         console.error("Failed to fetch settings:", error)
@@ -149,6 +168,24 @@ export default function AdminSettingsPage() {
       })
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedUrl(label)
+      toast({
+        title: "Copied!",
+        description: `${label} copied to clipboard`,
+      })
+      setTimeout(() => setCopiedUrl(null), 2000)
+    } catch {
+      toast({
+        title: "Failed to copy",
+        description: "Please copy manually",
+        variant: "destructive",
+      })
     }
   }
 
@@ -457,9 +494,44 @@ export default function AdminSettingsPage() {
                     }
                     placeholder="whsec_..."
                   />
+                </div>
+                
+                {/* Auto-detected Webhook URL */}
+                <div className="space-y-2 pt-2 border-t">
+                  <Label>Stripe Webhook URL</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      readOnly
+                      value={detectedUrls?.webhookUrls.stripe || `${typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/stripe`}
+                      className="font-mono text-sm bg-muted"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => copyToClipboard(
+                        detectedUrls?.webhookUrls.stripe || `${window.location.origin}/api/webhooks/stripe`,
+                        "Stripe Webhook URL"
+                      )}
+                    >
+                      {copiedUrl === "Stripe Webhook URL" ? (
+                        <Check className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    Webhook URL: {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/stripe
+                    Copy this URL and add it in your Stripe Dashboard → Developers → Webhooks
                   </p>
+                  {detectedUrls?.isAutoDetected && (
+                    <Alert className="mt-2">
+                      <Info className="h-4 w-4" />
+                      <AlertDescription className="text-xs">
+                        URL auto-detected from your domain. No need to set NEXT_PUBLIC_APP_URL!
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
               </div>
             </CardContent>

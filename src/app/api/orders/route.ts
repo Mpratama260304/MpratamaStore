@@ -60,13 +60,27 @@ export async function POST(request: NextRequest) {
     // Generate order number
     const orderNumber = `MPR-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`
 
-    // Determine payment method enum
-    const paymentMethodEnum = paymentMethod === "gateway" ? "GATEWAY" : "MANUAL_TRANSFER"
+    // Determine payment method - store the actual method chosen
+    // paymentMethod values: "STRIPE" | "PAYPAL" | "BANK_TRANSFER" | "GATEWAY" | "MANUAL_TRANSFER"
+    let finalPaymentMethod: string
+    let finalGatewayProvider: string | null = null
     
-    // Determine gateway provider
-    const gatewayProviderEnum = paymentMethod === "gateway" && gatewayProvider 
-      ? (gatewayProvider.toUpperCase() as "MIDTRANS" | "STRIPE")
-      : null
+    if (paymentMethod === "manual" || paymentMethod === "bank_transfer") {
+      finalPaymentMethod = "BANK_TRANSFER"
+    } else if (paymentMethod === "gateway" && gatewayProvider) {
+      // Legacy format support
+      finalPaymentMethod = gatewayProvider.toUpperCase()
+      finalGatewayProvider = gatewayProvider.toUpperCase()
+    } else if (gatewayProvider === "stripe") {
+      finalPaymentMethod = "STRIPE"
+      finalGatewayProvider = "STRIPE"
+    } else if (gatewayProvider === "paypal") {
+      finalPaymentMethod = "PAYPAL"
+      finalGatewayProvider = "PAYPAL"
+    } else {
+      // Default to bank transfer if no method specified
+      finalPaymentMethod = "BANK_TRANSFER"
+    }
 
     // Create order
     const order = await prisma.order.create({
@@ -80,8 +94,9 @@ export async function POST(request: NextRequest) {
         total: subtotal, // No discount for now
         currency: "IDR",
         status: "PENDING_PAYMENT",
-        paymentMethod: paymentMethodEnum,
-        gatewayProvider: gatewayProviderEnum,
+        paymentMethod: finalPaymentMethod,
+        paymentStatus: "PENDING",
+        gatewayProvider: finalGatewayProvider,
         notes,
         items: {
           create: orderItems,
@@ -97,16 +112,9 @@ export async function POST(request: NextRequest) {
       action: "order.create",
       entityType: "Order",
       entityId: order.id,
-      description: `Order ${orderNumber} created with ${orderItems.length} items`,
+      description: `Order ${orderNumber} created with ${orderItems.length} items, payment method: ${finalPaymentMethod}`,
       userId: session.user.id,
     })
-
-    // If gateway payment, create payment URL (placeholder for now)
-    let paymentUrl = null
-    if (paymentMethod === "gateway") {
-      // TODO: Integrate with Midtrans/Stripe
-      // paymentUrl = await createPaymentUrl(order)
-    }
 
     return NextResponse.json({
       order: {
@@ -114,8 +122,8 @@ export async function POST(request: NextRequest) {
         orderNumber: order.orderNumber,
         total: order.total,
         status: order.status,
+        paymentMethod: order.paymentMethod,
       },
-      paymentUrl,
     })
   } catch (error) {
     console.error("Order creation error:", error)

@@ -4,14 +4,16 @@
 # ============================================
 # USAGE:
 #   1. Copy this entire file to PhalaCloud compose editor
-#   2. Replace ALL placeholder values (YOUR-PHALA-DOMAIN, CHANGE_ME, etc.)
-#   3. Deploy
+#   2. Update AUTH_SECRET, JWT_SECRET, and ADMIN credentials
+#   3. Deploy - URL akan otomatis terdeteksi dari domain!
 #
 # KEY FEATURES:
 #   - 100% Internal SQLite database (no external DB!)
 #   - Auto migration & seed on startup
 #   - Persistent data via volume mount
 #   - Single container - simple deployment!
+#   - AUTO-DETECT domain dari request headers (tidak perlu set URL manual!)
+#   - Multi payment gateway: Stripe, PayPal, Bank Transfer
 # ============================================
 
 version: "3.9"
@@ -43,11 +45,13 @@ services:
       DATABASE_URL: "file:/data/app.db"
       
       # ══════════════════════════════════════════════════════════════
-      # APP URLs (WAJIB - Ganti dengan domain PhalaCloud Anda)
+      # APP URLs (OPSIONAL - Auto-detect dari request headers!)
+      # Biarkan kosong agar app otomatis mendeteksi domain dari PhalaCloud
+      # Jika ingin override manual, isi dengan domain Anda
       # ══════════════════════════════════════════════════════════════
-      NEXT_PUBLIC_APP_URL: "https://YOUR-PHALA-DOMAIN"
-      NEXT_PUBLIC_SITE_URL: "https://YOUR-PHALA-DOMAIN"
-      NEXT_PUBLIC_BASE_URL: "https://YOUR-PHALA-DOMAIN"
+      # NEXT_PUBLIC_APP_URL: ""
+      # NEXT_PUBLIC_SITE_URL: ""
+      # NEXT_PUBLIC_BASE_URL: ""
       
       # ══════════════════════════════════════════════════════════════
       # AUTHENTICATION (WAJIB)
@@ -64,17 +68,26 @@ services:
       ADMIN_PASSWORD: "SecurePassword123!"
       
       # ══════════════════════════════════════════════════════════════
-      # STRIPE PAYMENT (OPSIONAL)
+      # STRIPE PAYMENT (OPSIONAL - untuk credit card payments)
+      # Dapatkan keys dari: https://dashboard.stripe.com/apikeys
+      # Jika kosong, opsi Stripe tidak akan muncul di checkout
       # ══════════════════════════════════════════════════════════════
       STRIPE_SECRET_KEY: ""
       STRIPE_PUBLISHABLE_KEY: ""
+      # Webhook secret untuk menerima payment notifications
+      # Setup webhook di: https://dashboard.stripe.com/webhooks
+      # Endpoint URL: https://YOUR-PHALA-DOMAIN/api/webhooks/stripe
       STRIPE_WEBHOOK_SECRET: ""
       
       # ══════════════════════════════════════════════════════════════
-      # PAYPAL PAYMENT (OPSIONAL)
+      # PAYPAL PAYMENT (OPSIONAL - untuk PayPal payments)
+      # Dapatkan credentials dari: https://developer.paypal.com/
+      # Jika kosong, opsi PayPal tidak akan muncul di checkout
+      # Amount akan dikonversi ke USD untuk PayPal
       # ══════════════════════════════════════════════════════════════
       PAYPAL_CLIENT_ID: ""
       PAYPAL_CLIENT_SECRET: ""
+      # sandbox untuk testing, live untuk production
       PAYPAL_ENV: "sandbox"
     
     healthcheck:
