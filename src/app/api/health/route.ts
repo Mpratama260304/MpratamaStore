@@ -41,6 +41,9 @@ export async function GET() {
         urlConfigured: boolean
       }
     }
+    setup: {
+      needsSetup: boolean
+    }
   } = {
     ok: true,
     app: "up",
@@ -56,6 +59,9 @@ export async function GET() {
         skipFlag: dbStatus.skipFlag,
         urlConfigured: dbStatus.urlConfigured,
       }
+    },
+    setup: {
+      needsSetup: true // Default to true, will be updated below
     }
   }
   
@@ -102,10 +108,12 @@ export async function GET() {
     if (schemaCheck.ready) {
       const seedCheck = await checkSeeded(client)
       response.db.seeded = seedCheck.seeded
+      // Update setup status - needsSetup is opposite of seeded
+      response.setup.needsSetup = !seedCheck.seeded
     }
   }
   
-  console.log(`[Health] Check: connected=${response.db.connected}, schemaReady=${response.db.schemaReady}, seeded=${response.db.seeded}`)
+  console.log(`[Health] Check: connected=${response.db.connected}, schemaReady=${response.db.schemaReady}, seeded=${response.db.seeded}, needsSetup=${response.setup.needsSetup}`)
   
   return NextResponse.json(response, { status: 200 })
 }
