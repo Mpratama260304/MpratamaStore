@@ -68,6 +68,9 @@ COPY --from=builder /app/scripts ./scripts
 # Ensure start script is executable
 RUN chmod +x ./scripts/start.sh
 
+# Ensure bootstrap script is executable (if it exists)
+RUN chmod +x ./scripts/bootstrap.js 2>/dev/null || true
+
 # Set correct permissions for prerender cache
 RUN mkdir .next
 RUN chown nextjs:nodejs .next
@@ -88,11 +91,16 @@ RUN mkdir -p ./node_modules/.bin && \
 # Ensure nextjs user can write to @prisma/engines (needed for generate)
 RUN chown -R nextjs:nodejs ./node_modules/@prisma
 
-# Copy dependencies needed for seed script
+# Copy dependencies needed for bootstrap/seed script
 COPY --from=builder /app/node_modules/argon2 ./node_modules/argon2
 COPY --from=builder /app/package.json ./package.json
 
-# Copy tsx if available (for seed script)
+# Copy argon2 native bindings if they exist (needed for password hashing)
+RUN mkdir -p ./node_modules/@phc 2>/dev/null || true
+COPY --from=builder /app/node_modules/@phc ./node_modules/@phc 2>/dev/null || true
+COPY --from=builder /app/node_modules/@mapbox ./node_modules/@mapbox 2>/dev/null || true
+
+# Copy tsx if available (for seed script - fallback)
 RUN if [ -d /app/node_modules/tsx ]; then cp -r /app/node_modules/tsx ./node_modules/tsx; fi || true
 
 # Switch to non-root user

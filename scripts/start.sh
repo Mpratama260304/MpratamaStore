@@ -81,10 +81,24 @@ else
 fi
 echo ""
 
-# ==================== STEP 7: Seed Database ====================
-echo "🌱 Step 4: Running database seed..."
-$PRISMA_CLI db seed 2>&1 || true  # Don't fail if seed has issues (data may already exist)
-echo "   ✅ Seed completed (or data already exists)"
+# ==================== STEP 7: Bootstrap Admin User ====================
+echo "🔐 Step 4: Running bootstrap (admin user creation)..."
+
+# Use Node.js directly to run bootstrap script (more reliable than tsx)
+if [ -f "./scripts/bootstrap.js" ]; then
+  node ./scripts/bootstrap.js 2>&1 || BOOTSTRAP_FAILED=1
+  
+  if [ "$BOOTSTRAP_FAILED" = "1" ]; then
+    echo "⚠️  Bootstrap failed - admin user might not be created"
+    echo "   Check ADMIN_EMAIL, ADMIN_USERNAME, ADMIN_PASSWORD env vars"
+  else
+    echo "   ✅ Bootstrap completed"
+  fi
+else
+  echo "⚠️  Bootstrap script not found at ./scripts/bootstrap.js"
+  echo "   Falling back to prisma db seed..."
+  $PRISMA_CLI db seed 2>&1 || true
+fi
 echo ""
 
 # ==================== STEP 8: Show Database Status ====================

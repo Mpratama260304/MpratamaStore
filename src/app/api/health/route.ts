@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server"
 import { isDbEnabled, testDbConnection, getDbStatus, getPrismaClient } from "@/lib/db"
 import { classifyDbError, DbErrorType } from "@/lib/db-errors"
+import * as fs from 'fs'
 
 // Force dynamic - health check should always be fresh
 export const dynamic = 'force-dynamic'
+
+// Marker file path (same as bootstrap.js)
+const MARKER_FILE = '/data/.seeded'
 
 /**
  * Enhanced Health Check Endpoint
@@ -141,11 +145,22 @@ async function checkSchemaReady(client: ReturnType<typeof getPrismaClient>): Pro
 }
 
 /**
- * Check if database has been seeded (at least one admin user exists)
+ * Check if database has been seeded (at least one admin user exists OR marker file exists)
  */
 async function checkSeeded(client: ReturnType<typeof getPrismaClient>): Promise<{
   seeded: boolean
+  source?: 'marker' | 'database'
 }> {
+  // First check marker file (quick filesystem check)
+  try {
+    if (fs.existsSync(MARKER_FILE)) {
+      return { seeded: true, source: 'marker' }
+    }
+  } catch {
+    // Ignore filesystem errors
+  }
+  
+  // If no marker, check database for admin user
   if (!client) return { seeded: false }
   
   try {
@@ -154,7 +169,7 @@ async function checkSeeded(client: ReturnType<typeof getPrismaClient>): Promise<
       where: { role: 'ADMIN' }
     })
     
-    return { seeded: adminCount > 0 }
+    return { seeded: adminCount > 0, source: 'database' }
   } catch {
     // If query fails, assume not seeded
     return { seeded: false }
